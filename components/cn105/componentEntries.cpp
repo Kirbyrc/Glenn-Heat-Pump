@@ -1,4 +1,5 @@
 #include "cn105.h"
+#include "hp_emulator.h"
 #ifdef USE_WIFI
 #include "esphome/components/wifi/wifi_component.h"
 #endif
@@ -11,6 +12,9 @@ using namespace esphome;
  * UART is used for communication with the heatpump
  * setupUART will handle the
 */
+
+HVAC::HPEmulator myhp;
+
 void CN105Climate::setup() {
 
     ESP_LOGD(TAG, "Component initialization: setup call");
@@ -44,6 +48,11 @@ void CN105Climate::setup() {
     // Initialize the internal flag based on the static configuration provided by YAML/Python
     this->supports_dual_setpoint_ = this->traits_.has_feature_flags(climate::CLIMATE_REQUIRES_TWO_POINT_TARGET_TEMPERATURE);
     ESP_LOGI(TAG, "Dual setpoint support configured: %s", this->supports_dual_setpoint_ ? "YES" : "NO");
+    
+    //KIRBY was here
+    ESP_LOGD(TAG, "Kirby initialization of uart");
+    myhp.uartInit();
+
 }
 
 
@@ -59,6 +68,10 @@ void CN105Climate::loop() {
     // On continue quand même à lire/processer l'input afin de détecter le 0x7A/0x7B (connection success).
     const bool can_talk_to_hp = this->isHeatpumpConnected_;
 
+    //KIRBY was here
+    ESP_LOGD(TAG, "Kirby initialization of uart");
+    myhp.run();
+    
     if (!this->processInput()) {                                            // if we don't get any input: no read op
         if (!can_talk_to_hp) {
             return;
