@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include "driver/uart.h"
+#include "esp_netif.h"
 
 #define HP_UART_NUM UART_NUM_1
 #define RE_UART_NUM UART_NUM_2
@@ -106,8 +107,10 @@ public:
     void process_port_emulator(struct DataBuffer* dbuf, uart_port_t uart_num);
     void* start_webserver();
     bool uartInit();
+    bool isNetworkUp();
 
 private:
+    bool _webserver_started;
     uint8_t _power;
     uint8_t _mode;
     uint8_t _fan_speed;
@@ -116,5 +119,6 @@ private:
     uint8_t _vane_vertical;
     uint8_t _vane_horizontal;
 };
+
 
 } // namespace HVAC

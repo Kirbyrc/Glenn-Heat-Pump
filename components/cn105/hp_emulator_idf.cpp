@@ -5,15 +5,18 @@
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "esp_http_server.h"
+#include "esp_netif.h"
+#include "esphome.h"
+
 
 namespace HVAC {
 
-static const char *TAG = "HPE_Core";
+static const char *HPE_TAG = "HPE_Core";
 
 // Constructor initializes variables with default values
 HPEmulator::HPEmulator() :
     _power(1), _mode(2), _fan_speed(3), _target_temp(20), _act_temp(18),
-    _vane_vertical(3), _vane_horizontal(1) {
+    _vane_vertical(3), _vane_horizontal(1), _webserver_started(false) {
 }
 
 // --- Initialization Method ---
@@ -299,7 +302,7 @@ void HPEmulator::process_port_emulator(struct DataBuffer* dbuf, uart_port_t uart
 
 
 bool HPEmulator::uartInit() {
-    ESP_LOGI(TAG, "Initializing UART");
+    ESP_LOGI(HPE_TAG, "Initializing UART");
 
     // Configure UART parameters
     uart_config_t uart_config = {
@@ -315,21 +318,21 @@ bool HPEmulator::uartInit() {
 
     // Install UART driver for RE_UART (Serial2)
     if (uart_driver_install(RE_UART_NUM, 256 * 2, 0, 0, NULL, 0) != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to install UART driver");
+        ESP_LOGE(HPE_TAG, "Failed to install UART driver");
         return false;
     }
 
     if (uart_param_config(RE_UART_NUM, &uart_config) != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to configure UART parameters");
+        ESP_LOGE(HPE_TAG, "Failed to configure UART parameters");
         return false;
     }
 
     if (uart_set_pin(RE_UART_NUM, RE_TX2_PIN, RE_RX2_PIN, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE) != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to set UART pins");
+        ESP_LOGE(HPE_TAG, "Failed to set UART pins");
         return false;
     }
 
-    ESP_LOGI(TAG, "UART initialized: TX=%d RX=%d Baud=%d", RE_TX2_PIN, RE_RX2_PIN, BAUD);
+    ESP_LOGI(HPE_TAG, "UART initialized: TX=%d RX=%d Baud=%d", RE_TX2_PIN, RE_RX2_PIN, BAUD);
     return true;
 }
 
@@ -470,7 +473,7 @@ static esp_err_t heatpump_status_handler(httpd_req_t *req) {
     );
 
     if (len < 0 || len >= sizeof(html)) {
-        ESP_LOGE(TAG, "HTML buffer overflow!");
+        ESP_LOGE(HPE_TAG, "HTML buffer overflow!");
         httpd_resp_send_500(req);
         return ESP_FAIL;
     }
@@ -491,8 +494,9 @@ void* HPEmulator::start_webserver() {
     config.lru_purge_enable = true;
     config.stack_size = 8192;  // Increase stack size for HTTP handler
     config.server_port = WEBPORT;
+    config.ctrl_port = 32769; // Avoid conflict with main ESPHome server
 
-    ESP_LOGI(TAG, "Starting web server on port %d", config.server_port);
+    ESP_LOGI(HPE_TAG, "Starting web server on port %d", config.server_port);
 
     if (httpd_start(&web_server, &config) == ESP_OK) {
         // Register URI handlers - pass 'this' as user context
@@ -510,23 +514,29 @@ void* HPEmulator::start_webserver() {
         return web_server;
     }
 
-    ESP_LOGE(TAG, "Error starting web server!");
+    ESP_LOGE(HPE_TAG, "Error starting web server!");
     return NULL;
 }
 
 void HPEmulator::setup() {
-    ESP_LOGI(TAG, "Starting HPEmulator setup");
-    if (uartInit()) ESP_LOGI(TAG, "UART initialized successfully");
-    else ESP_LOGE(TAG, "Failed to initialize UART");
-    
-    if (start_webserver()) ESP_LOGI(TAG, "Web server started on port %d\n", WEBPORT);
-    else ESP_LOGE(TAG, "Failed to start web server");
-    
-    ESP_LOGI(TAG, "HPEmulator setup complete");
-    }
+    ESP_LOGI(HPE_TAG, "Starting HPEmulator setup");
+    if (uartInit()) ESP_LOGI(HPE_TAG, "UART initialized successfully");
+    else ESP_LOGE(HPE_TAG, "Failed to initialize UART");
+    ESP_LOGI(HPE_TAG, "HPEmulator setup complete, waiting for network to start webserver");
+}
 
 void HPEmulator::run() {
-    process_port_emulator(&Remote_buffer, RE_UART_NUM);
+    // Start webserver once network is available
+    if (!_webserver_started && esphome::network::is_connected()) {
+        if (start_webserver()) {
+            ESP_LOGI(HPE_TAG, "Web server started on port %d", WEBPORT);
+            _webserver_started = true;
+        } else {
+            ESP_LOGE(HPE_TAG, "Failed to start web server");
+        }
     }
+
+    process_port_emulator(&Remote_buffer, RE_UART_NUM);
+}
 
 } // namespace HVAC
