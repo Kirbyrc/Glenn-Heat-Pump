@@ -1,5 +1,5 @@
 #include "cn105.h"
-#include "hp_emulator.h"
+#include "hp_emulator_idf.h"
 #ifdef USE_WIFI
 #include "esphome/components/wifi/wifi_component.h"
 #endif
@@ -50,8 +50,7 @@ void CN105Climate::setup() {
     ESP_LOGI(TAG, "Dual setpoint support configured: %s", this->supports_dual_setpoint_ ? "YES" : "NO");
     
     //KIRBY was here
-    ESP_LOGD(TAG, "Kirby initialization of uart");
-    myhp.uartInit();
+    myhp.setup();
 
 }
 
@@ -69,7 +68,6 @@ void CN105Climate::loop() {
     const bool can_talk_to_hp = this->isHeatpumpConnected_;
 
     //KIRBY was here
-    ESP_LOGD(TAG, "Kirby initialization of uart");
     myhp.run();
     
     if (!this->processInput()) {                                            // if we don't get any input: no read op
