@@ -9,6 +9,14 @@
 #define HP_UART_NUM UART_NUM_1
 #define RE_UART_NUM UART_NUM_2
 
+// Forward declaration for CN105Climate
+namespace esphome {
+    class CN105Climate;
+}
+
+// Global pointer to CN105Climate - set from CN105Climate::setup()
+extern esphome::CN105Climate* g_cn105;
+
 namespace HVAC {
 
 const int RE_TX2_PIN = 11; // TX2
@@ -89,6 +97,7 @@ public:
     // --- Logic Methods ---
     const char* lookupByteMapValue(const char* const valuesMap[], const uint8_t byteMap[], int len, uint8_t byteValue);
     int  lookupByteMapValue(const int valuesMap[], const uint8_t byteMap[], int len, uint8_t byteValue);
+    int  lookupByteMapIndex(const char* valuesMap[], int len, const char* lookupValue);
     void send_ping_response_to_remote(struct DataBuffer* dbuf, uart_port_t uart_num);
     void send_config_response_to_remote(struct DataBuffer* dbuf, uart_port_t uart_num);
     void send_remote_state_to_heatpump(struct DataBuffer* dbuf, uart_port_t uart_num);

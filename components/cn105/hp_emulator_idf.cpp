@@ -1,11 +1,15 @@
 #include <stdio.h>
 #include <string.h>
 #include "hp_emulator_idf.h"
+#include "cn105.h"
 #include "driver/uart.h"
 #include "esphome.h"
 #include "esp_timer.h"
 #include "esp_http_server.h"
 #include "esp_netif.h"
+
+// Global pointer to CN105Climate instance
+esphome::CN105Climate* g_cn105 = nullptr;
 
 namespace HVAC {
 
@@ -66,17 +70,69 @@ void HPEmulator::setVaneHorizontal(uint8_t value) {
     else emulatorHoriVane = value;
 }
 
+
 // --- Comparison ---
 void HPEmulator::getEsphomeState() {
-     //when completed, this method will pull the state from esphome
-     esphomePower=1;
-     esphomeMode=2;
-     esphomeFan=3;
-     esphomeSetTemp=20;
-     esphomeActualTemp=18;
-     esphomeVertVane=3;
-     esphomeHoriVane=1;
-}
+    int index;
+    
+    if (g_cn105 == nullptr) {
+        ESP_LOGW(TAG, "g_cn105 is null, cannot get ESPHome state");
+        return;
+    }
+
+    // Print currentSettings from CN105Climate (now public - KIRBY)
+    ESP_LOGI(TAG, "ESPHome currentSettings:");
+    ESP_LOGI(TAG, "  power: %s", g_cn105->currentSettings.power ? g_cn105->currentSettings.power : "null");
+    ESP_LOGI(TAG, "  mode: %s", g_cn105->currentSettings.mode ? g_cn105->currentSettings.mode : "null");
+    ESP_LOGI(TAG, "  temperature: %.1f", g_cn105->currentSettings.temperature);
+    ESP_LOGI(TAG, "  fan: %s", g_cn105->currentSettings.fan ? g_cn105->currentSettings.fan : "null");
+    ESP_LOGI(TAG, "  vane: %s", g_cn105->currentSettings.vane ? g_cn105->currentSettings.vane : "null");
+    ESP_LOGI(TAG, "  wideVane: %s", g_cn105->currentSettings.wideVane ? g_cn105->currentSettings.wideVane : "null");
+
+    // Temperatures
+    esphomeSetTemp = (uint8_t)g_cn105->currentSettings.temperature;
+    esphomeActualTemp = (uint8_t)g_cn105->current_temperature;
+    
+    // For the others: lookup byte value from string
+    if (g_cn105->currentSettings.power) {
+        index = lookupByteMapIndex(POWER_MAP, 2, g_cn105->currentSettings.power);
+        if (index <0) esphomePower = 0;
+        else esphomePower = POWER[index];
+        }
+
+    if (g_cn105->currentSettings.mode) {
+        index = lookupByteMapIndex(MODE_MAP, 5, g_cn105->currentSettings.mode);
+        if (index <0) esphomeMode = 0;
+        else esphomeMode = MODE[index];
+        }
+
+    if (g_cn105->currentSettings.fan) {
+        index = lookupByteMapIndex(FAN_MAP, 6, g_cn105->currentSettings.fan);
+        if (index <0) esphomeFan = 0;
+        else esphomeFan = FAN[index];
+        }
+
+    if (g_cn105->currentSettings.vane) {
+        index = lookupByteMapIndex(VANE_MAP, 7, g_cn105->currentSettings.vane);
+        if (index <0) esphomeVertVane = 0;
+        else esphomeVertVane = VANE[index];
+        }
+
+    if (g_cn105->currentSettings.wideVane) {
+        index = lookupByteMapIndex(WIDEVANE_MAP, 7, g_cn105->currentSettings.wideVane);
+        if (index <0) esphomeHoriVane = 0;
+        else esphomeHoriVane = WIDEVANE[index];
+        }
+
+     // Push esphome state to emulator
+    emulatorPower = esphomePower;
+    emulatorMode = esphomeMode;
+    emulatorFan = esphomeFan;      
+    emulatorSetTemp = esphomeSetTemp;
+    emulatorActualTemp = esphomeActualTemp;
+    emulatorVertVane = esphomeVertVane;
+    emulatorHoriVane = esphomeHoriVane;
+    }
 
 bool HPEmulator::compareWithESPHOME() const {
     return (true);
@@ -84,10 +140,9 @@ bool HPEmulator::compareWithESPHOME() const {
             esphomeMode == emulatorMode &&
             esphomeFan == emulatorFan &&
             esphomeSetTemp == emulatorSetTemp &&
-            esphomeActualTemp == emulatorActualTemp &&
             esphomeVertVane == emulatorVertVane &&
             esphomeHoriVane == emulatorHoriVane);
-}
+   }
 
 // variables
 DataBuffer Stim_buffer; //used to build stimulus
@@ -166,6 +221,15 @@ int HPEmulator::lookupByteMapValue(const int valuesMap[], const uint8_t byteMap[
         }
     }
     return valuesMap[0];
+}
+
+int HPEmulator::lookupByteMapIndex(const char* valuesMap[], int len, const char* lookupValue) {
+  for (int i = 0; i < len; i++) {
+    if (strcasecmp(valuesMap[i], lookupValue) == 0) {
+      return i;
+    }
+  }
+  return -1;
 }
 
 void HPEmulator::send_ping_response_to_remote(struct DataBuffer* dbuf, uart_port_t uart_num) {
