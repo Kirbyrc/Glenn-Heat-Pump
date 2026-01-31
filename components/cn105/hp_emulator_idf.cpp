@@ -37,7 +37,19 @@ void HPEmulator::stateInit(uint8_t power, uint8_t mode, uint8_t fan_speed,
 // --- Setters ---
 void HPEmulator::setPower(uint8_t value) {
     if (value > 1) print_byte(value, "Power", "Out of Range");
-    else emulatorPower = value;
+    else {
+        emulatorPower = value;
+        esphomePower = value;
+        // Also update CN105Climate currentSettings
+        if (g_cn105 != nullptr) {
+            // Copy currentSettings to receivedSettings, then update power
+            //g_cn105->kirbySettings = g_cn105->currentSettings;
+            //receivedSettings.power = (value == 1) ? "ON" : "OFF";
+            g_cn105->currentSettings.power = (value == 1) ? "ON" : "OFF";
+            //g_cn105->heatpumpUpdate(receivedSettings);
+
+        }
+    }
 }
 
 void HPEmulator::setMode(uint8_t value) {
@@ -135,7 +147,6 @@ void HPEmulator::getEsphomeState() {
     }
 
 bool HPEmulator::compareWithESPHOME() const {
-    return (true);
     return (esphomePower == emulatorPower &&
             esphomeMode == emulatorMode &&
             esphomeFan == emulatorFan &&
@@ -421,11 +432,6 @@ bool HPEmulator::uartInit() {
     return true;
 }
 
-// --- Web Server Implementation ---
-
-// Static web server handle
-static httpd_handle_t web_server = NULL;
-
 // Helper function to check if network is connected
 static bool is_network_connected() {
     esp_netif_t *netif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
@@ -440,6 +446,12 @@ static bool is_network_connected() {
     }
     return false;
 }
+
+// --- Web Server Implementation ---
+
+// Static web server handle
+static httpd_handle_t web_server = NULL;
+
 
 // HTTP server handler for heatpump status
 esp_err_t heatpump_status_handler(httpd_req_t *req) {
