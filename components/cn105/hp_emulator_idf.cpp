@@ -2,20 +2,10 @@
 #include <string.h>
 #include "hp_emulator_idf.h"
 #include "driver/uart.h"
-//#include "esp_log.h"
 #include "esphome.h"
 #include "esp_timer.h"
 #include "esp_http_server.h"
 #include "esp_netif.h"
-
-// Heat pump control variables
-uint8_t hpPower;
-uint8_t hpMode;
-uint8_t hpFan;
-uint8_t hpSetTemp;
-uint8_t hpActualTemp;
-uint8_t hpVertVane;
-uint8_t hpHoriVane;
 
 namespace HVAC {
 
@@ -23,78 +13,80 @@ static const char *TAG = "HPE_Core";
 
 // Constructor initializes variables with default values
 HPEmulator::HPEmulator() :
-    _power(1), _mode(2), _fan_speed(3), _target_temp(20), _act_temp(18),
-    _vane_vertical(3), _vane_horizontal(1), _webserver_started(false) {
+    emulatorPower(1), emulatorMode(2), emulatorFan(3), emulatorSetTemp(20), emulatorActualTemp(18),
+    emulatorVertVane(3), emulatorHoriVane(1), _webserver_started(false) {
 }
 
 // --- Initialization Method ---
 void HPEmulator::stateInit(uint8_t power, uint8_t mode, uint8_t fan_speed,
                       uint8_t set_temp, uint8_t act_temp, uint8_t vane_vertical,
                       uint8_t vane_horizontal) {
-    _power = power;
-    _mode = mode;
-    _fan_speed = fan_speed;
-    _target_temp = set_temp;
-    _act_temp = act_temp;
-    _vane_vertical = vane_vertical;
-    _vane_horizontal = vane_horizontal;
+    emulatorPower = power;
+    emulatorMode = mode;
+    emulatorFan = fan_speed;
+    emulatorSetTemp = set_temp;
+    emulatorActualTemp = act_temp;
+    emulatorVertVane = vane_vertical;
+    emulatorHoriVane = vane_horizontal;
 }
 
 // --- Setters ---
 void HPEmulator::setPower(uint8_t value) {
     if (value > 1) print_byte(value, "Power", "Out of Range");
-    else _power = value;
+    else emulatorPower = value;
 }
 
 void HPEmulator::setMode(uint8_t value) {
     if (value > 0x08) print_byte(value, "Mode", "Out of Range");
-    else _mode = value;
+    else emulatorMode = value;
 }
 
 void HPEmulator::setFanSpeed(uint8_t value) {
     if (value > 6) print_byte(value, "Fan Speed", "Out of Range");
-    else _fan_speed = value;
+    else emulatorFan = value;
 }
 
 void HPEmulator::setTargetTemp(uint8_t value) {
     if (value < 0x10) print_byte(value, "Target Temp", "Out of Range");
-    else _target_temp = value;
+    else emulatorSetTemp = value;
 }
 
 void HPEmulator::setActualTemp(uint8_t value) {
     if (value < 0x10) print_byte(value, "Actual Temp", "Out of Range");
-    else _act_temp = value;
+    else emulatorActualTemp = value;
 }
 
 void HPEmulator::setVaneVertical(uint8_t value) {
     if (value > 7) print_byte(value, "Vane Vertical", "Out of Range");
-    else _vane_vertical = value;
+    else emulatorVertVane = value;
 }
 
 void HPEmulator::setVaneHorizontal(uint8_t value) {
     if (value > 12) print_byte(value, "Vane Horizontal", "Out of Range");
-    else _vane_horizontal = value;
+    else emulatorHoriVane = value;
 }
 
-// --- Getters ---
-uint8_t HPEmulator::getPower() const { return _power; }
-uint8_t HPEmulator::getMode() const { return _mode; }
-uint8_t HPEmulator::getFanSpeed() const { return _fan_speed; }
-uint8_t HPEmulator::getTargetTemp() const { return _target_temp; }
-uint8_t HPEmulator::getActualTemp() const { return _act_temp; }
-uint8_t HPEmulator::getVaneVertical() const { return _vane_vertical; }
-uint8_t HPEmulator::getVaneHorizontal() const { return _vane_horizontal; }
-
 // --- Comparison ---
+void HPEmulator::getEsphomeState() {
+     //when completed, this method will pull the state from esphome
+     esphomePower=1;
+     esphomeMode=2;
+     esphomeFan=3;
+     esphomeSetTemp=20;
+     esphomeActualTemp=18;
+     esphomeVertVane=3;
+     esphomeHoriVane=1;
+}
+
 bool HPEmulator::compareWithESPHOME() const {
     return (true);
-    return (hpPower == _power &&
-            hpMode == _mode &&
-            hpFan == _fan_speed &&
-            hpSetTemp == _target_temp &&
-            hpActualTemp == _act_temp &&
-            hpVertVane == _vane_vertical &&
-            hpHoriVane == _vane_horizontal);
+    return (esphomePower == emulatorPower &&
+            esphomeMode == emulatorMode &&
+            esphomeFan == emulatorFan &&
+            esphomeSetTemp == emulatorSetTemp &&
+            esphomeActualTemp == emulatorActualTemp &&
+            esphomeVertVane == emulatorVertVane &&
+            esphomeHoriVane == emulatorHoriVane);
 }
 
 // variables
@@ -237,18 +229,18 @@ void HPEmulator::send_heatpump_state_to_remote(struct DataBuffer* dbuf, uart_por
     switch(info_mode) {
         case 0x02: {
             //settings request
-            Stim_buffer.buffer[8] = getPower();
-            Stim_buffer.buffer[9] = getMode();
-            Stim_buffer.buffer[10] = getTargetTemp();
-            Stim_buffer.buffer[11] = getFanSpeed();
-            Stim_buffer.buffer[12] = getVaneVertical();
-            Stim_buffer.buffer[14] = getVaneHorizontal();
-            Stim_buffer.buffer[16] = (getTargetTemp() << 1) | 0x80; //target temp in bits 1-7
+            Stim_buffer.buffer[8] = emulatorPower;
+            Stim_buffer.buffer[9] = emulatorMode;
+            Stim_buffer.buffer[10] = emulatorSetTemp;
+            Stim_buffer.buffer[11] = emulatorFan;
+            Stim_buffer.buffer[12] = emulatorVertVane;
+            Stim_buffer.buffer[14] = emulatorHoriVane;
+            Stim_buffer.buffer[16] = (emulatorSetTemp << 1) | 0x80; //target temp in bits 1-7
             break;
         }
         case 0x03: {
             // room temp request
-            Stim_buffer.buffer[11] = (getActualTemp() << 1) | 0x80; //target temp in bits 1-7
+            Stim_buffer.buffer[11] = (emulatorActualTemp << 1) | 0x80; //target temp in bits 1-7
             break;
         }
         case 0x04: {
@@ -386,7 +378,7 @@ static bool is_network_connected() {
 }
 
 // HTTP server handler for heatpump status
-static esp_err_t heatpump_status_handler(httpd_req_t *req) {
+esp_err_t heatpump_status_handler(httpd_req_t *req) {
     // Get HPEmulator instance from user context
     HPEmulator* hp = (HPEmulator*)req->user_ctx;
 
@@ -479,7 +471,7 @@ static esp_err_t heatpump_status_handler(httpd_req_t *req) {
                 <div class="status-label">Power</div>
                 <div class="values-container">
                     <div class="value-box">
-                        <div class="value-type">Internal</div>
+                        <div class="value-type">Emulator</div>
                         <div class="status-value">%s</div>
                     </div>
                     <div class="value-box">
@@ -493,7 +485,7 @@ static esp_err_t heatpump_status_handler(httpd_req_t *req) {
                 <div class="status-label">Mode</div>
                 <div class="values-container">
                     <div class="value-box">
-                        <div class="value-type">Internal</div>
+                        <div class="value-type">Emulator</div>
                         <div class="status-value">%s</div>
                     </div>
                     <div class="value-box">
@@ -507,7 +499,7 @@ static esp_err_t heatpump_status_handler(httpd_req_t *req) {
                 <div class="status-label">Fan Speed</div>
                 <div class="values-container">
                     <div class="value-box">
-                        <div class="value-type">Internal</div>
+                        <div class="value-type">Emulator</div>
                         <div class="status-value">%s</div>
                     </div>
                     <div class="value-box">
@@ -523,7 +515,7 @@ static esp_err_t heatpump_status_handler(httpd_req_t *req) {
                 <div class="status-label">Target Temp (°C)</div>
                 <div class="values-container">
                     <div class="value-box">
-                        <div class="value-type">Internal</div>
+                        <div class="value-type">Emulator</div>
                         <div class="status-value">%d</div>
                     </div>
                     <div class="value-box">
@@ -537,7 +529,7 @@ static esp_err_t heatpump_status_handler(httpd_req_t *req) {
                 <div class="status-label">Target Temp (°F)</div>
                 <div class="values-container">
                     <div class="value-box">
-                        <div class="value-type">Internal</div>
+                        <div class="value-type">Emulator</div>
                         <div class="status-value">%d</div>
                     </div>
                     <div class="value-box">
@@ -551,7 +543,7 @@ static esp_err_t heatpump_status_handler(httpd_req_t *req) {
                 <div class="status-label">Actual Temp (°C)</div>
                 <div class="values-container">
                     <div class="value-box">
-                        <div class="value-type">Internal</div>
+                        <div class="value-type">Emulator</div>
                         <div class="status-value">%d</div>
                     </div>
                     <div class="value-box">
@@ -565,7 +557,7 @@ static esp_err_t heatpump_status_handler(httpd_req_t *req) {
                 <div class="status-label">Actual Temp (°F)</div>
                 <div class="values-container">
                     <div class="value-box">
-                        <div class="value-type">Internal</div>
+                        <div class="value-type">Emulator</div>
                         <div class="status-value">%d</div>
                     </div>
                     <div class="value-box">
@@ -579,7 +571,7 @@ static esp_err_t heatpump_status_handler(httpd_req_t *req) {
                 <div class="status-label">Vane Vertical</div>
                 <div class="values-container">
                     <div class="value-box">
-                        <div class="value-type">Internal</div>
+                        <div class="value-type">Emulator</div>
                         <div class="status-value">%s</div>
                     </div>
                     <div class="value-box">
@@ -593,7 +585,7 @@ static esp_err_t heatpump_status_handler(httpd_req_t *req) {
                 <div class="status-label">Vane Horizontal</div>
                 <div class="values-container">
                     <div class="value-box">
-                        <div class="value-type">Internal</div>
+                        <div class="value-type">Emulator</div>
                         <div class="status-value">%s</div>
                     </div>
                     <div class="value-box">
@@ -611,40 +603,40 @@ static esp_err_t heatpump_status_handler(httpd_req_t *req) {
 </html>
 )",
         "",
-        hp->lookupByteMapValue(hp->POWER_MAP, hp->POWER, 2, hp->getPower()),
-        "0",
+        hp->lookupByteMapValue(hp->POWER_MAP, hp->POWER, 2, hp->emulatorPower),
+        hp->lookupByteMapValue(hp->POWER_MAP, hp->POWER, 2, hp->esphomePower),
 
         "",
-        hp->lookupByteMapValue(hp->MODE_MAP, hp->MODE, 5, hp->getMode()),
-        hp->lookupByteMapValue(hp->MODE_MAP, hp->MODE, 5, hpMode),
+        hp->lookupByteMapValue(hp->MODE_MAP, hp->MODE, 5, hp->emulatorMode),
+        hp->lookupByteMapValue(hp->MODE_MAP, hp->MODE, 5, hp->esphomeMode),
 
         "",
-        hp->lookupByteMapValue(hp->FAN_MAP, hp->FAN, 6, hp->getFanSpeed()),
-        hp->lookupByteMapValue(hp->FAN_MAP, hp->FAN, 6, hpFan),
+        hp->lookupByteMapValue(hp->FAN_MAP, hp->FAN, 6, hp->emulatorFan),
+        hp->lookupByteMapValue(hp->FAN_MAP, hp->FAN, 6, hp->esphomeFan),
 
         "",
-        hp->getTargetTemp(),
-        hpSetTemp,
+        hp->emulatorSetTemp,
+        hp->esphomeSetTemp,
 
         "",
-        (hp->getTargetTemp() * 9 / 5) + 32,
-        (hpSetTemp * 9 / 5) + 32,
+        (hp->emulatorSetTemp * 9 / 5) + 32,
+        (hp->esphomeSetTemp * 9 / 5) + 32,
 
         "",
-        hp->getActualTemp(),
-        hpActualTemp,
+        hp->emulatorActualTemp,
+        hp->esphomeActualTemp,
 
         "",
-        (hp->getActualTemp() * 9 / 5) + 32,
-        (hpActualTemp * 9 / 5) + 32,
+        (hp->emulatorActualTemp * 9 / 5) + 32,
+        (hp->esphomeActualTemp * 9 / 5) + 32,
 
         "",
-        hp->lookupByteMapValue(hp->VANE_MAP, hp->VANE, 7, hp->getVaneVertical()),
-        hp->lookupByteMapValue(hp->VANE_MAP, hp->VANE, 7, hpVertVane),
+        hp->lookupByteMapValue(hp->VANE_MAP, hp->VANE, 7, hp->emulatorVertVane),
+        hp->lookupByteMapValue(hp->VANE_MAP, hp->VANE, 7, hp->esphomeVertVane),
 
         "",
-        hp->lookupByteMapValue(hp->WIDEVANE_MAP, hp->WIDEVANE, 7, hp->getVaneHorizontal()),
-        hp->lookupByteMapValue(hp->WIDEVANE_MAP, hp->WIDEVANE, 7, hpHoriVane)
+        hp->lookupByteMapValue(hp->WIDEVANE_MAP, hp->WIDEVANE, 7, hp->emulatorHoriVane),
+        hp->lookupByteMapValue(hp->WIDEVANE_MAP, hp->WIDEVANE, 7, hp->esphomeHoriVane)
     );
 
     if (len < 0 || len >= sizeof(html)) {
@@ -723,6 +715,7 @@ void HPEmulator::run() {
 
     uint64_t currentTime = esp_timer_get_time() / 1000; // Convert microseconds to milliseconds
     if ((currentTime - lastComparisonTime) >= comparisonInterval) {
+        getEsphomeState();
         bool match = compareWithESPHOME();
         if (!match) {
             ESP_LOGW(TAG, "Global variables differ from internal state");

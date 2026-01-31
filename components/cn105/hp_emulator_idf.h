@@ -4,18 +4,10 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include "driver/uart.h"
+#include "esp_http_server.h"
 
 #define HP_UART_NUM UART_NUM_1
 #define RE_UART_NUM UART_NUM_2
-
-// Global variables for ESPHome state - updated by CN105Climate
-extern uint8_t hpPower;
-extern uint8_t hpMode;
-extern uint8_t hpFan;
-extern uint8_t hpSetTemp;
-extern uint8_t hpActualTemp;
-extern uint8_t hpVertVane;
-extern uint8_t hpHoriVane;
 
 namespace HVAC {
 
@@ -37,6 +29,7 @@ struct DataBuffer {
 };
 
 class HPEmulator {
+    friend esp_err_t heatpump_status_handler(httpd_req_t *req);
 public:
     HPEmulator(); // Constructor
 
@@ -89,16 +82,8 @@ public:
     void setVaneVertical(uint8_t value);
     void setVaneHorizontal(uint8_t value);
 
-    // --- Getters ---
-    uint8_t getPower() const;
-    uint8_t getMode() const;
-    uint8_t getFanSpeed() const;
-    uint8_t getTargetTemp() const;
-    uint8_t getActualTemp() const;
-    uint8_t getVaneVertical() const;
-    uint8_t getVaneHorizontal() const;
-
     // --- Comparison ---
+    void getEsphomeState();
     bool compareWithESPHOME() const;
 
     // --- Logic Methods ---
@@ -120,13 +105,25 @@ public:
     bool uartInit();
 
 private:
-    uint8_t _power;
-    uint8_t _mode;
-    uint8_t _fan_speed;
-    uint8_t _target_temp;
-    uint8_t _act_temp;
-    uint8_t _vane_vertical;
-    uint8_t _vane_horizontal;
+    // Emulator State Variables
+    uint8_t emulatorPower;
+    uint8_t emulatorMode;
+    uint8_t emulatorFan;
+    uint8_t emulatorSetTemp;
+    uint8_t emulatorActualTemp;
+    uint8_t emulatorVertVane;
+    uint8_t emulatorHoriVane;
+
+    // ESPHome state variables
+    uint8_t esphomePower;
+    uint8_t esphomeMode;
+    uint8_t esphomeFan;
+    uint8_t esphomeSetTemp;
+    uint8_t esphomeActualTemp;
+    uint8_t esphomeVertVane;
+    uint8_t esphomeHoriVane;
+
+    // Flag to indicate if the webserver has been started
     bool _webserver_started;
 };
 
