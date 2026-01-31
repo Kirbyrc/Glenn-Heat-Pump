@@ -320,11 +320,10 @@ namespace esphome {
         void prepareInfoPacket(uint8_t* packet, int length);
         void prepareSetPacket(uint8_t* packet, int length);
 
-        void publishStateToHA(heatpumpSettings& settings);
         void publishWantedSettingsStateToHA();
         void publishWantedRunStatesStateToHA();
 
-        void heatpumpUpdate(heatpumpSettings& settings);
+        void publishStateToHA(heatpumpSettings& settings);
 
         void statusChanged(heatpumpStatus status);
 
@@ -345,7 +344,6 @@ namespace esphome {
         void hpPacketDebug(uint8_t* packet, unsigned int length, const char* packetDirection);
         void hpFunctionsDebug(uint8_t* packet, unsigned int length);
 
-        void debugSettings(const char* settingName, heatpumpSettings& settings);
         void debugSettings(const char* settingName, wantedHeatpumpSettings& settings);
         void debugStatus(const char* statusName, heatpumpStatus status);
         void debugSettingsAndStatus(const char* settingName, heatpumpSettings settings, heatpumpStatus status);
@@ -372,8 +370,16 @@ namespace esphome {
 
         void createPacket(uint8_t* packet);
         void createInfoPacket(uint8_t* packet, uint8_t code);
+
+    public:
+        // KIRBY: Made public for HPEmulator access
         heatpumpSettings currentSettings{};
+        void heatpumpUpdate(heatpumpSettings& settings);
+        void debugSettings(const char* settingName, heatpumpSettings& settings);
         wantedHeatpumpSettings wantedSettings{};
+        wantedHeatpumpSettings kirbySettings{};
+
+    private:
         heatpumpRunStates currentRunStates{};
         wantedHeatpumpRunStates wantedRunStates{};
         cycleManagement loopCycle{};
