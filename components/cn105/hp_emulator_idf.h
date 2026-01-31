@@ -4,10 +4,18 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include "driver/uart.h"
-#include "esp_netif.h"
 
 #define HP_UART_NUM UART_NUM_1
 #define RE_UART_NUM UART_NUM_2
+
+// Global variables for ESPHome state - updated by CN105Climate
+extern uint8_t hpPower;
+extern uint8_t hpMode;
+extern uint8_t hpFan;
+extern uint8_t hpSetTemp;
+extern uint8_t hpActualTemp;
+extern uint8_t hpVertVane;
+extern uint8_t hpHoriVane;
 
 namespace HVAC {
 
@@ -90,6 +98,9 @@ public:
     uint8_t getVaneVertical() const;
     uint8_t getVaneHorizontal() const;
 
+    // --- Comparison ---
+    bool compareWithESPHOME() const;
+
     // --- Logic Methods ---
     const char* lookupByteMapValue(const char* const valuesMap[], const uint8_t byteMap[], int len, uint8_t byteValue);
     int  lookupByteMapValue(const int valuesMap[], const uint8_t byteMap[], int len, uint8_t byteValue);
@@ -107,10 +118,8 @@ public:
     void process_port_emulator(struct DataBuffer* dbuf, uart_port_t uart_num);
     void* start_webserver();
     bool uartInit();
-    bool isNetworkUp();
 
 private:
-    bool _webserver_started;
     uint8_t _power;
     uint8_t _mode;
     uint8_t _fan_speed;
@@ -118,7 +127,7 @@ private:
     uint8_t _act_temp;
     uint8_t _vane_vertical;
     uint8_t _vane_horizontal;
+    bool _webserver_started;
 };
-
 
 } // namespace HVAC

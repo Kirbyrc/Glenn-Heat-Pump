@@ -2,16 +2,24 @@
 #include <string.h>
 #include "hp_emulator_idf.h"
 #include "driver/uart.h"
-#include "esp_log.h"
+//#include "esp_log.h"
+#include "esphome.h"
 #include "esp_timer.h"
 #include "esp_http_server.h"
 #include "esp_netif.h"
-#include "esphome.h"
 
+// Heat pump control variables
+uint8_t hpPower;
+uint8_t hpMode;
+uint8_t hpFan;
+uint8_t hpSetTemp;
+uint8_t hpActualTemp;
+uint8_t hpVertVane;
+uint8_t hpHoriVane;
 
 namespace HVAC {
 
-static const char *HPE_TAG = "HPE_Core";
+static const char *TAG = "HPE_Core";
 
 // Constructor initializes variables with default values
 HPEmulator::HPEmulator() :
@@ -77,6 +85,18 @@ uint8_t HPEmulator::getActualTemp() const { return _act_temp; }
 uint8_t HPEmulator::getVaneVertical() const { return _vane_vertical; }
 uint8_t HPEmulator::getVaneHorizontal() const { return _vane_horizontal; }
 
+// --- Comparison ---
+bool HPEmulator::compareWithESPHOME() const {
+    return (true);
+    return (hpPower == _power &&
+            hpMode == _mode &&
+            hpFan == _fan_speed &&
+            hpSetTemp == _target_temp &&
+            hpActualTemp == _act_temp &&
+            hpVertVane == _vane_vertical &&
+            hpHoriVane == _vane_horizontal);
+}
+
 // variables
 DataBuffer Stim_buffer; //used to build stimulus
 DataBuffer Remote_buffer; //used to receive from remote
@@ -84,7 +104,8 @@ DataBuffer Remote_buffer; //used to receive from remote
 // --- Logic Methods ---
 
 void HPEmulator::print_utility(const char* data) {
-    printf("%s", data);
+    //printf("%s", data);
+    ESP_LOGI(TAG, "%s", data);
 }
 
 void HPEmulator::print_byte(uint8_t byte, const char* mess1, const char* mess2) {
@@ -95,17 +116,25 @@ void HPEmulator::print_byte(uint8_t byte, const char* mess1, const char* mess2) 
 }
 
 void HPEmulator::print_packet(struct DataBuffer* dbuf, const char* mess1, const char* mess2) {
-    char buf[256];
+    char buf[256];  // Large enough for timestamp + header + all bytes
+    int offset = 0;
     int i;
-    uint64_t currentMS = esp_timer_get_time() / 1000; // Convert microseconds to milliseconds
-    snprintf(buf, 256, "(%08lld-000) %s %s: ", currentMS, mess1, mess2);
-    print_utility(buf);
-    for (i = 0; i < dbuf->buf_pointer; i++) {
-        if (i % 4 == 0) snprintf(buf, 256, " %02x", dbuf->buffer[i]);
-        else snprintf(buf, 256, "%02x", dbuf->buffer[i]);
-        print_utility(buf);
+    //uint64_t currentMS = esp_timer_get_time() / 1000; // Convert microseconds to milliseconds
+
+    // Build timestamp and header
+    //offset += snprintf(buf + offset, sizeof(buf) - offset, "(%08lld-000) %s %s: ", currentMS, mess1, mess2);
+    offset += snprintf(buf + offset, sizeof(buf) - offset, "%s %s: ", mess1, mess2);
+
+    // Build packet bytes
+    for (i = 0; i < dbuf->buf_pointer && offset < sizeof(buf) - 10; i++) {
+        if (i % 4 == 0) {
+            offset += snprintf(buf + offset, sizeof(buf) - offset, " %02x", dbuf->buffer[i]);
+        } else {
+            offset += snprintf(buf + offset, sizeof(buf) - offset, "%02x", dbuf->buffer[i]);
+        }
     }
-    snprintf(buf, 256, "%s", "\n");
+
+    // Print entire message once
     print_utility(buf);
 }
 
@@ -302,7 +331,7 @@ void HPEmulator::process_port_emulator(struct DataBuffer* dbuf, uart_port_t uart
 
 
 bool HPEmulator::uartInit() {
-    ESP_LOGI(HPE_TAG, "Initializing UART");
+    ESP_LOGI(TAG, "Initializing UART");
 
     // Configure UART parameters
     uart_config_t uart_config = {
@@ -318,21 +347,21 @@ bool HPEmulator::uartInit() {
 
     // Install UART driver for RE_UART (Serial2)
     if (uart_driver_install(RE_UART_NUM, 256 * 2, 0, 0, NULL, 0) != ESP_OK) {
-        ESP_LOGE(HPE_TAG, "Failed to install UART driver");
+        ESP_LOGE(TAG, "Failed to install UART driver");
         return false;
     }
 
     if (uart_param_config(RE_UART_NUM, &uart_config) != ESP_OK) {
-        ESP_LOGE(HPE_TAG, "Failed to configure UART parameters");
+        ESP_LOGE(TAG, "Failed to configure UART parameters");
         return false;
     }
 
     if (uart_set_pin(RE_UART_NUM, RE_TX2_PIN, RE_RX2_PIN, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE) != ESP_OK) {
-        ESP_LOGE(HPE_TAG, "Failed to set UART pins");
+        ESP_LOGE(TAG, "Failed to set UART pins");
         return false;
     }
 
-    ESP_LOGI(HPE_TAG, "UART initialized: TX=%d RX=%d Baud=%d", RE_TX2_PIN, RE_RX2_PIN, BAUD);
+    ESP_LOGI(TAG, "UART initialized: TX=%d RX=%d Baud=%d", RE_TX2_PIN, RE_RX2_PIN, BAUD);
     return true;
 }
 
@@ -341,13 +370,28 @@ bool HPEmulator::uartInit() {
 // Static web server handle
 static httpd_handle_t web_server = NULL;
 
+// Helper function to check if network is connected
+static bool is_network_connected() {
+    esp_netif_t *netif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
+    if (netif == NULL) {
+        return false;
+    }
+
+    esp_netif_ip_info_t ip_info;
+    if (esp_netif_get_ip_info(netif, &ip_info) == ESP_OK) {
+        // Check if we have a valid IP address (not 0.0.0.0)
+        return (ip_info.ip.addr != 0);
+    }
+    return false;
+}
+
 // HTTP server handler for heatpump status
 static esp_err_t heatpump_status_handler(httpd_req_t *req) {
     // Get HPEmulator instance from user context
     HPEmulator* hp = (HPEmulator*)req->user_ctx;
 
     // Use static buffer to avoid stack overflow
-    static char html[4096];
+    static char html[8192];
 
     // Build HTML response
     int len = snprintf(html, sizeof(html), R"(
@@ -357,128 +401,262 @@ static esp_err_t heatpump_status_handler(httpd_req_t *req) {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="refresh" content="10">
-    <title>Heatpump Emulator State</title>
+    <title>HP Emulator</title>
     <style>
         body {
             font-family: Arial, sans-serif;
-            margin: 20px;
+            margin: 10px;
             background-color: #f5f5f5;
+            font-size: 13px;
         }
         .container {
             background-color: white;
-            padding: 30px;
-            border-radius: 8px;
+            padding: 15px;
+            border-radius: 6px;
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-            max-width: 500px;
+            max-width: 900px;
             margin: 0 auto;
         }
         h1 {
             color: #333;
             text-align: center;
-            margin-top: 0;
+            margin: 0 0 15px 0;
+            font-size: 20px;
         }
-        .status-grid {
+        .grid {
             display: grid;
             grid-template-columns: 1fr 1fr;
-            gap: 15px;
-            margin-top: 20px;
+            gap: 10px;
         }
         .status-item {
             background-color: #f9f9f9;
-            padding: 15px;
-            border-left: 4px solid #4CAF50;
-            border-radius: 4px;
+            padding: 10px;
+            border-left: 3px solid #4CAF50;
+            border-radius: 3px;
+        }
+        .status-item.mismatch {
+            border-left-color: #ff9800;
+            background-color: #fff3e0;
         }
         .status-label {
             font-weight: bold;
             color: #555;
-            font-size: 12px;
+            font-size: 11px;
             text-transform: uppercase;
-            margin-bottom: 5px;
+            margin-bottom: 6px;
+        }
+        .values-container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+        }
+        .value-box {
+            text-align: center;
+        }
+        .value-type {
+            font-size: 9px;
+            color: #888;
+            margin-bottom: 3px;
         }
         .status-value {
-            font-size: 24px;
+            font-size: 16px;
             color: #4CAF50;
             font-weight: bold;
         }
         .footer {
             text-align: center;
-            margin-top: 30px;
-            font-size: 12px;
+            margin-top: 10px;
+            font-size: 10px;
             color: #999;
-        }
-        .refresh-info {
-            text-align: center;
-            color: #666;
-            font-size: 14px;
-            margin-top: 20px;
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>Heatpump Emulator State</h1>
-        <div class="status-grid">
-            <div class="status-item">
+        <h1>Heatpump Emulator</h1>
+        <div class="grid">
+            <div class="status-item%s">
                 <div class="status-label">Power</div>
-                <div class="status-value">%s</div>
+                <div class="values-container">
+                    <div class="value-box">
+                        <div class="value-type">Internal</div>
+                        <div class="status-value">%s</div>
+                    </div>
+                    <div class="value-box">
+                        <div class="value-type">Esphome</div>
+                        <div class="status-value">%s</div>
+                    </div>
+                </div>
             </div>
-            <div class="status-item">
+
+            <div class="status-item%s">
                 <div class="status-label">Mode</div>
-                <div class="status-value">%s</div>
+                <div class="values-container">
+                    <div class="value-box">
+                        <div class="value-type">Internal</div>
+                        <div class="status-value">%s</div>
+                    </div>
+                    <div class="value-box">
+                        <div class="value-type">Esphome</div>
+                        <div class="status-value">%s</div>
+                    </div>
+                </div>
             </div>
-            <div class="status-item">
+
+            <div class="status-item%s">
                 <div class="status-label">Fan Speed</div>
-                <div class="status-value">%s</div>
+                <div class="values-container">
+                    <div class="value-box">
+                        <div class="value-type">Internal</div>
+                        <div class="status-value">%s</div>
+                    </div>
+                    <div class="value-box">
+                        <div class="value-type">Esphome</div>
+                        <div class="status-value">%s</div>
+                    </div>
+                </div>
             </div>
-            <div class="status-item">
-                <div class="status-label">Vane Vertical</div>
-                <div class="status-value">%s</div>
-            </div>
-            <div class="status-item">
+
+            <div style="visibility: hidden;"></div>
+
+            <div class="status-item%s">
                 <div class="status-label">Target Temp (°C)</div>
-                <div class="status-value">%d</div>
+                <div class="values-container">
+                    <div class="value-box">
+                        <div class="value-type">Internal</div>
+                        <div class="status-value">%d</div>
+                    </div>
+                    <div class="value-box">
+                        <div class="value-type">Esphome</div>
+                        <div class="status-value">%d</div>
+                    </div>
+                </div>
             </div>
-            <div class="status-item">
-                <div class="status-label">Actual Temp (°C)</div>
-                <div class="status-value">%d</div>
-            </div>
-            <div class="status-item">
+
+            <div class="status-item%s">
                 <div class="status-label">Target Temp (°F)</div>
-                <div class="status-value">%d</div>
+                <div class="values-container">
+                    <div class="value-box">
+                        <div class="value-type">Internal</div>
+                        <div class="status-value">%d</div>
+                    </div>
+                    <div class="value-box">
+                        <div class="value-type">Esphome</div>
+                        <div class="status-value">%d</div>
+                    </div>
+                </div>
             </div>
-            <div class="status-item">
+
+            <div class="status-item%s">
+                <div class="status-label">Actual Temp (°C)</div>
+                <div class="values-container">
+                    <div class="value-box">
+                        <div class="value-type">Internal</div>
+                        <div class="status-value">%d</div>
+                    </div>
+                    <div class="value-box">
+                        <div class="value-type">Esphome</div>
+                        <div class="status-value">%d</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="status-item%s">
                 <div class="status-label">Actual Temp (°F)</div>
-                <div class="status-value">%d</div>
+                <div class="values-container">
+                    <div class="value-box">
+                        <div class="value-type">Internal</div>
+                        <div class="status-value">%d</div>
+                    </div>
+                    <div class="value-box">
+                        <div class="value-type">Esphome</div>
+                        <div class="status-value">%d</div>
+                    </div>
+                </div>
             </div>
-        </div>
-        <div class="refresh-info">
-            <p>Page auto-refreshes every 10 seconds</p>
+
+            <div class="status-item%s">
+                <div class="status-label">Vane Vertical</div>
+                <div class="values-container">
+                    <div class="value-box">
+                        <div class="value-type">Internal</div>
+                        <div class="status-value">%s</div>
+                    </div>
+                    <div class="value-box">
+                        <div class="value-type">Esphome</div>
+                        <div class="status-value">%s</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="status-item%s">
+                <div class="status-label">Vane Horizontal</div>
+                <div class="values-container">
+                    <div class="value-box">
+                        <div class="value-type">Internal</div>
+                        <div class="status-value">%s</div>
+                    </div>
+                    <div class="value-box">
+                        <div class="value-type">Esphome</div>
+                        <div class="status-value">%s</div>
+                    </div>
+                </div>
+            </div>
         </div>
         <div class="footer">
-            <p>Heatpump Emulator - Web Status Monitor</p>
+            Auto-refresh: 10s | Heatpump Emulator
         </div>
     </div>
 </body>
 </html>
 )",
+        "",
         hp->lookupByteMapValue(hp->POWER_MAP, hp->POWER, 2, hp->getPower()),
+        "0",
+
+        "",
         hp->lookupByteMapValue(hp->MODE_MAP, hp->MODE, 5, hp->getMode()),
+        hp->lookupByteMapValue(hp->MODE_MAP, hp->MODE, 5, hpMode),
+
+        "",
         hp->lookupByteMapValue(hp->FAN_MAP, hp->FAN, 6, hp->getFanSpeed()),
-        hp->lookupByteMapValue(hp->VANE_MAP, hp->VANE, 7, hp->getVaneVertical()),
+        hp->lookupByteMapValue(hp->FAN_MAP, hp->FAN, 6, hpFan),
+
+        "",
         hp->getTargetTemp(),
-        hp->getActualTemp(),
+        hpSetTemp,
+
+        "",
         (hp->getTargetTemp() * 9 / 5) + 32,
-        (hp->getActualTemp() * 9 / 5) + 32
+        (hpSetTemp * 9 / 5) + 32,
+
+        "",
+        hp->getActualTemp(),
+        hpActualTemp,
+
+        "",
+        (hp->getActualTemp() * 9 / 5) + 32,
+        (hpActualTemp * 9 / 5) + 32,
+
+        "",
+        hp->lookupByteMapValue(hp->VANE_MAP, hp->VANE, 7, hp->getVaneVertical()),
+        hp->lookupByteMapValue(hp->VANE_MAP, hp->VANE, 7, hpVertVane),
+
+        "",
+        hp->lookupByteMapValue(hp->WIDEVANE_MAP, hp->WIDEVANE, 7, hp->getVaneHorizontal()),
+        hp->lookupByteMapValue(hp->WIDEVANE_MAP, hp->WIDEVANE, 7, hpHoriVane)
     );
 
     if (len < 0 || len >= sizeof(html)) {
-        ESP_LOGE(HPE_TAG, "HTML buffer overflow!");
+        ESP_LOGE(TAG, "HTML buffer overflow!");
         httpd_resp_send_500(req);
         return ESP_FAIL;
     }
 
     httpd_resp_set_type(req, "text/html");
+    httpd_resp_set_hdr(req, "Cache-Control", "no-cache, no-store, must-revalidate");
+    httpd_resp_set_hdr(req, "Pragma", "no-cache");
+    httpd_resp_set_hdr(req, "Expires", "0");
     httpd_resp_send(req, html, len);
     return ESP_OK;
 }
@@ -496,7 +674,7 @@ void* HPEmulator::start_webserver() {
     config.server_port = WEBPORT;
     config.ctrl_port = 32769; // Avoid conflict with main ESPHome server
 
-    ESP_LOGI(HPE_TAG, "Starting web server on port %d", config.server_port);
+    ESP_LOGI(TAG, "Starting web server on port %d", config.server_port);
 
     if (httpd_start(&web_server, &config) == ESP_OK) {
         // Register URI handlers - pass 'this' as user context
@@ -514,29 +692,43 @@ void* HPEmulator::start_webserver() {
         return web_server;
     }
 
-    ESP_LOGE(HPE_TAG, "Error starting web server!");
+    ESP_LOGE(TAG, "Error starting web server!");
     return NULL;
 }
 
 void HPEmulator::setup() {
-    ESP_LOGI(HPE_TAG, "Starting HPEmulator setup");
-    if (uartInit()) ESP_LOGI(HPE_TAG, "UART initialized successfully");
-    else ESP_LOGE(HPE_TAG, "Failed to initialize UART");
-    ESP_LOGI(HPE_TAG, "HPEmulator setup complete, waiting for network to start webserver");
+    ESP_LOGI(TAG, "Starting HPEmulator setup");
+    if (uartInit()) ESP_LOGI(TAG, "UART initialized successfully");
+    else ESP_LOGE(TAG, "Failed to initialize UART");
+
+    ESP_LOGI(TAG, "HPEmulator setup complete (webserver will start when network is ready)");
 }
 
 void HPEmulator::run() {
+    process_port_emulator(&Remote_buffer, RE_UART_NUM);
+
     // Start webserver once network is available
-    if (!_webserver_started && esphome::network::is_connected()) {
+    if (!_webserver_started && is_network_connected()) {
         if (start_webserver()) {
-            ESP_LOGI(HPE_TAG, "Web server started on port %d", WEBPORT);
+            ESP_LOGI(TAG, "Web server started on port %d", WEBPORT);
             _webserver_started = true;
         } else {
-            ESP_LOGE(HPE_TAG, "Failed to start web server");
+            ESP_LOGE(TAG, "Failed to start web server");
         }
     }
 
-    process_port_emulator(&Remote_buffer, RE_UART_NUM);
+    // Compare global variables with internal state every second
+    static uint64_t lastComparisonTime = 0;
+    const uint64_t comparisonInterval = 1000; // 1 second in milliseconds
+
+    uint64_t currentTime = esp_timer_get_time() / 1000; // Convert microseconds to milliseconds
+    if ((currentTime - lastComparisonTime) >= comparisonInterval) {
+        bool match = compareWithESPHOME();
+        if (!match) {
+            ESP_LOGW(TAG, "Global variables differ from internal state");
+            }
+        lastComparisonTime = currentTime;
+    }
 }
 
 } // namespace HVAC
