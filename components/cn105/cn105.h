@@ -344,7 +344,7 @@ namespace esphome {
         void hpPacketDebug(uint8_t* packet, unsigned int length, const char* packetDirection);
         void hpFunctionsDebug(uint8_t* packet, unsigned int length);
 
-        void debugSettings(const char* settingName, wantedHeatpumpSettings& settings);
+
         void debugStatus(const char* statusName, heatpumpStatus status);
         void debugSettingsAndStatus(const char* settingName, heatpumpSettings settings, heatpumpStatus status);
         void debugClimate(const char* settingName);
@@ -376,8 +376,8 @@ namespace esphome {
         heatpumpSettings currentSettings{};
         void heatpumpUpdate(heatpumpSettings& settings);
         void debugSettings(const char* settingName, heatpumpSettings& settings);
+        void debugSettings(const char* settingName, wantedHeatpumpSettings& settings);
         wantedHeatpumpSettings wantedSettings{};
-        wantedHeatpumpSettings kirbySettings{};
 
     private:
         heatpumpRunStates currentRunStates{};

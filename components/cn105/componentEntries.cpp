@@ -50,6 +50,7 @@ void CN105Climate::setup() {
     ESP_LOGI(TAG, "Dual setpoint support configured: %s", this->supports_dual_setpoint_ ? "YES" : "NO");
     
     //KIRBY was here
+    g_cn105 = this;  // Set global pointer so HPEmulator can access CN105Climate
     myhp.setup();
 
 }

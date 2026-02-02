@@ -82,8 +82,8 @@ public:
     void run();
 
     // --- Setters ---
-    void setPower(uint8_t value);
-    void setMode(uint8_t value);
+    bool setPower(uint8_t value);
+    bool setMode(uint8_t value);
     void setFanSpeed(uint8_t value);
     void setTargetTemp(uint8_t value);
     void setActualTemp(uint8_t value);

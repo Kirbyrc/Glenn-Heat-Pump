@@ -35,50 +35,52 @@ void HPEmulator::stateInit(uint8_t power, uint8_t mode, uint8_t fan_speed,
 }
 
 // --- Setters ---
-void HPEmulator::setPower(uint8_t value) {
-    if (value > 1) print_byte(value, "Power", "Out of Range");
+bool HPEmulator::setPower(uint8_t value) {
+    if (value > 1) {
+        ESP_LOGW(TAG, "Power Out of Range: %d", value);
+        return false;
+        }
     else {
         emulatorPower = value;
-        esphomePower = value;
-        // Also update CN105Climate currentSettings
-        if (g_cn105 != nullptr) {
-            // Copy currentSettings to receivedSettings, then update power
-            //g_cn105->kirbySettings = g_cn105->currentSettings;
-            //receivedSettings.power = (value == 1) ? "ON" : "OFF";
-            g_cn105->currentSettings.power = (value == 1) ? "ON" : "OFF";
-            //g_cn105->heatpumpUpdate(receivedSettings);
-
+        //g_cn105->wantedSettings.power = lookupByteMapValue(POWER_MAP, POWER, 2, value);
+        return true;
         }
     }
-}
 
-void HPEmulator::setMode(uint8_t value) {
-    if (value > 0x08) print_byte(value, "Mode", "Out of Range");
-    else emulatorMode = value;
-}
+bool HPEmulator::setMode(uint8_t value) {
+    if (value > 0x08) {
+        ESP_LOGW(TAG, "Mode Out of Range: %d", value);
+        return false;
+        }
+    else {
+        emulatorMode = value;
+        //g_cn105->wantedSettings.mode = lookupByteMapValue(MODE_MAP, MODE, 5, value);
+        return true;
+        }
+    }
 
 void HPEmulator::setFanSpeed(uint8_t value) {
-    if (value > 6) print_byte(value, "Fan Speed", "Out of Range");
+    if (value > 6) ESP_LOGW(TAG, "Fan Speed Out of Range: %d", value);
     else emulatorFan = value;
-}
+    }
 
 void HPEmulator::setTargetTemp(uint8_t value) {
-    if (value < 0x10) print_byte(value, "Target Temp", "Out of Range");
+    if (value < 0x10) ESP_LOGW(TAG, "Target Temp Out of Range: %d", value);
     else emulatorSetTemp = value;
 }
 
 void HPEmulator::setActualTemp(uint8_t value) {
-    if (value < 0x10) print_byte(value, "Actual Temp", "Out of Range");
+    if (value < 0x10) ESP_LOGW(TAG, "Actual Temp Out of Range: %d", value);
     else emulatorActualTemp = value;
 }
 
 void HPEmulator::setVaneVertical(uint8_t value) {
-    if (value > 7) print_byte(value, "Vane Vertical", "Out of Range");
+    if (value > 7) ESP_LOGW(TAG, "Vane Vertical Out of Range: %d", value);
     else emulatorVertVane = value;
 }
 
 void HPEmulator::setVaneHorizontal(uint8_t value) {
-    if (value > 12) print_byte(value, "Vane Horizontal", "Out of Range");
+    if (value > 12) ESP_LOGW(TAG, "Vane Horizontal Out of Range: %d", value);
     else emulatorHoriVane = value;
 }
 
@@ -93,13 +95,13 @@ void HPEmulator::getEsphomeState() {
     }
 
     // Print currentSettings from CN105Climate (now public - KIRBY)
-    ESP_LOGI(TAG, "ESPHome currentSettings:");
-    ESP_LOGI(TAG, "  power: %s", g_cn105->currentSettings.power ? g_cn105->currentSettings.power : "null");
-    ESP_LOGI(TAG, "  mode: %s", g_cn105->currentSettings.mode ? g_cn105->currentSettings.mode : "null");
-    ESP_LOGI(TAG, "  temperature: %.1f", g_cn105->currentSettings.temperature);
-    ESP_LOGI(TAG, "  fan: %s", g_cn105->currentSettings.fan ? g_cn105->currentSettings.fan : "null");
-    ESP_LOGI(TAG, "  vane: %s", g_cn105->currentSettings.vane ? g_cn105->currentSettings.vane : "null");
-    ESP_LOGI(TAG, "  wideVane: %s", g_cn105->currentSettings.wideVane ? g_cn105->currentSettings.wideVane : "null");
+    // ESP_LOGD(TAG, "ESPHome currentSettings:");
+    // ESP_LOGD(TAG, "  power: %s", g_cn105->currentSettings.power ? g_cn105->currentSettings.power : "null");
+    // ESP_LOGD(TAG, "  mode: %s", g_cn105->currentSettings.mode ? g_cn105->currentSettings.mode : "null");
+    // ESP_LOGD(TAG, "  temperature: %.1f", g_cn105->currentSettings.temperature);
+    // ESP_LOGD(TAG, "  fan: %s", g_cn105->currentSettings.fan ? g_cn105->currentSettings.fan : "null");
+    // ESP_LOGD(TAG, "  vane: %s", g_cn105->currentSettings.vane ? g_cn105->currentSettings.vane : "null");
+    // ESP_LOGD(TAG, "  wideVane: %s", g_cn105->currentSettings.wideVane ? g_cn105->currentSettings.wideVane : "null");
 
     // Temperatures
     esphomeSetTemp = (uint8_t)g_cn105->currentSettings.temperature;
@@ -115,7 +117,10 @@ void HPEmulator::getEsphomeState() {
     if (g_cn105->currentSettings.mode) {
         index = lookupByteMapIndex(MODE_MAP, 5, g_cn105->currentSettings.mode);
         if (index <0) esphomeMode = 0;
-        else esphomeMode = MODE[index];
+        else {
+            esphomeMode = MODE[index];
+            esphomePower = 1; // Ensure power is ON if mode is set
+            }
         }
 
     if (g_cn105->currentSettings.fan) {
@@ -147,31 +152,27 @@ void HPEmulator::getEsphomeState() {
     }
 
 bool HPEmulator::compareWithESPHOME() const {
-    return (esphomePower == emulatorPower &&
-            esphomeMode == emulatorMode &&
-            esphomeFan == emulatorFan &&
-            esphomeSetTemp == emulatorSetTemp &&
-            esphomeVertVane == emulatorVertVane &&
-            esphomeHoriVane == emulatorHoriVane);
-   }
+
+   if (esphomePower != emulatorPower) ESP_LOGD(TAG, "Power mismatch: ESPHome=%d, Emulator=%d", esphomePower, emulatorPower);
+   if (esphomeMode != emulatorMode) ESP_LOGD(TAG, "Mode mismatch: ESPHome=%d, Emulator=%d", esphomeMode, emulatorMode);
+   if (esphomeFan != emulatorFan) ESP_LOGD(TAG, "Fan mismatch: ESPHome=%d, Emulator=%d", esphomeFan, emulatorFan);
+   if (esphomeSetTemp != emulatorSetTemp) ESP_LOGD(TAG, "SetTemp mismatch: ESPHome=%d, Emulator=%d", esphomeSetTemp, emulatorSetTemp);
+   if (esphomeVertVane != emulatorVertVane) ESP_LOGD(TAG, "VertVane mismatch: ESPHome=%d, Emulator=%d", esphomeVertVane, emulatorVertVane);
+   if (esphomeHoriVane != emulatorHoriVane) ESP_LOGD(TAG, "HoriVane mismatch: ESPHome=%d, Emulator=%d", esphomeHoriVane, emulatorHoriVane);
+
+   return (esphomePower == emulatorPower &&
+           esphomeMode == emulatorMode &&
+           esphomeFan == emulatorFan &&
+           esphomeSetTemp == emulatorSetTemp &&
+           esphomeVertVane == emulatorVertVane &&
+           esphomeHoriVane == emulatorHoriVane);
+}
 
 // variables
 DataBuffer Stim_buffer; //used to build stimulus
 DataBuffer Remote_buffer; //used to receive from remote
 
 // --- Logic Methods ---
-
-void HPEmulator::print_utility(const char* data) {
-    //printf("%s", data);
-    ESP_LOGI(TAG, "%s", data);
-}
-
-void HPEmulator::print_byte(uint8_t byte, const char* mess1, const char* mess2) {
-    char buf[256];
-    uint64_t currentMS = esp_timer_get_time() / 1000; // Convert microseconds to milliseconds
-    snprintf(buf, 256, "(%08lld-000) %s %s 0x%02x\n", currentMS, mess1, mess2, byte);
-    HPEmulator::print_utility(buf);
-}
 
 void HPEmulator::print_packet(struct DataBuffer* dbuf, const char* mess1, const char* mess2) {
     char buf[256];  // Large enough for timestamp + header + all bytes
@@ -193,8 +194,8 @@ void HPEmulator::print_packet(struct DataBuffer* dbuf, const char* mess1, const 
     }
 
     // Print entire message once
-    print_utility(buf);
-}
+    ESP_LOGD (TAG, "%s", buf);
+    }   
 
 bool HPEmulator::check_checksum(struct DataBuffer* dbuf) {
     int i;
@@ -264,28 +265,31 @@ void HPEmulator::send_config_response_to_remote(struct DataBuffer* dbuf, uart_po
 void HPEmulator::send_remote_state_to_heatpump(struct DataBuffer* dbuf, uart_port_t uart_num) {
     uint8_t mask1 = dbuf->buffer[6];
     uint8_t mask2 = dbuf->buffer[7];
+    bool something_changed = false;
 
-    if (mask1 & 0x01) {
-        setPower(dbuf->buffer[8]);
-       }
-    if (mask1 & 0x02) {
-        setMode(dbuf->buffer[9]);
-       }
-    if (mask1 & 0x04) {
-        uint8_t temp = (dbuf->buffer[19] & 0x7f) >> 1;
-        setTargetTemp(temp);
-        setActualTemp(temp - 2); // For simplicity, set actual temp to target temp minus 2 degrees
-       }
-    if (mask1 & 0x08) {
-        setFanSpeed(dbuf->buffer[11]);
-       }
-    if (mask1 & 0x10) {
-        setVaneVertical(dbuf->buffer[12]);
-       }
-    if (mask2 & 0x01) {
-        setVaneHorizontal(dbuf->buffer[18]);
-       }
+    // build a wanted state record from current eshpome state
+    if (g_cn105 != nullptr) { //this code only works if connected to esphome
+        g_cn105->wantedSettings = g_cn105->currentSettings; //initialize wantedSettings from current settings
+        g_cn105->debugSettings("KIRBPREWANTED", g_cn105->wantedSettings);
 
+        if (mask1 & 0x01) something_changed |= setPower(dbuf->buffer[8]);
+        if (mask1 & 0x02) something_changed |= setMode(dbuf->buffer[9]);
+        if (mask1 & 0x04) {
+            uint8_t temp = (dbuf->buffer[19] & 0x7f) >> 1;
+            setTargetTemp(temp);
+            setActualTemp(temp - 2); // For simplicity, set actual temp to target temp minus 2 degrees
+            }
+        if (mask1 & 0x08) setFanSpeed(dbuf->buffer[11]);
+        if (mask1 & 0x10) setVaneVertical(dbuf->buffer[12]);        
+        if (mask2 & 0x01) setVaneHorizontal(dbuf->buffer[18]);
+        if (something_changed) {
+           //if (!g_cn105->wantedSettings.power) g_cn105->wantedSettings.power="OFF";
+           //g_cn105->wantedSettings.hasChanged = true;
+           //g_cn105->debugSettings("KIRBWANTED", g_cn105->wantedSettings);
+           }   
+        }   
+    
+    // send the response packet
     Stim_buffer.buf_pointer = sizeof(CONTROL_RESPONSE);
     Stim_buffer.length = Stim_buffer.buf_pointer;
     memcpy(Stim_buffer.buffer, CONTROL_RESPONSE, sizeof(CONTROL_RESPONSE));
@@ -398,7 +402,7 @@ void HPEmulator::process_port_emulator(struct DataBuffer* dbuf, uart_port_t uart
 
 
 bool HPEmulator::uartInit() {
-    ESP_LOGI(TAG, "Initializing UART");
+    ESP_LOGD(TAG, "Initializing UART");
 
     // Configure UART parameters
     uart_config_t uart_config = {
@@ -428,7 +432,7 @@ bool HPEmulator::uartInit() {
         return false;
     }
 
-    ESP_LOGI(TAG, "UART initialized: TX=%d RX=%d Baud=%d", RE_TX2_PIN, RE_RX2_PIN, BAUD);
+    ESP_LOGD(TAG, "UART initialized: TX=%d RX=%d Baud=%d", RE_TX2_PIN, RE_RX2_PIN, BAUD);
     return true;
 }
 
@@ -742,7 +746,7 @@ void* HPEmulator::start_webserver() {
     config.server_port = WEBPORT;
     config.ctrl_port = 32769; // Avoid conflict with main ESPHome server
 
-    ESP_LOGI(TAG, "Starting web server on port %d", config.server_port);
+    ESP_LOGD(TAG, "Starting web server on port %d", config.server_port);
 
     if (httpd_start(&web_server, &config) == ESP_OK) {
         // Register URI handlers - pass 'this' as user context
@@ -765,11 +769,10 @@ void* HPEmulator::start_webserver() {
 }
 
 void HPEmulator::setup() {
-    ESP_LOGI(TAG, "Starting HPEmulator setup");
-    if (uartInit()) ESP_LOGI(TAG, "UART initialized successfully");
-    else ESP_LOGE(TAG, "Failed to initialize UART");
+    ESP_LOGD(TAG, "Starting HPEmulator setup");
+    if (!uartInit()) ESP_LOGE(TAG, "Failed to initialize UART");
 
-    ESP_LOGI(TAG, "HPEmulator setup complete (webserver will start when network is ready)");
+    ESP_LOGD(TAG, "HPEmulator setup complete (webserver will start when network is ready)");
 }
 
 void HPEmulator::run() {
@@ -778,26 +781,22 @@ void HPEmulator::run() {
     // Start webserver once network is available
     if (!_webserver_started && is_network_connected()) {
         if (start_webserver()) {
-            ESP_LOGI(TAG, "Web server started on port %d", WEBPORT);
+            ESP_LOGD(TAG, "Web server started on port %d", WEBPORT);
             _webserver_started = true;
         } else {
             ESP_LOGE(TAG, "Failed to start web server");
         }
     }
 
-    // Compare global variables with internal state every second
+    // Get ESPHome state every second
     static uint64_t lastComparisonTime = 0;
     const uint64_t comparisonInterval = 1000; // 1 second in milliseconds
 
     uint64_t currentTime = esp_timer_get_time() / 1000; // Convert microseconds to milliseconds
     if ((currentTime - lastComparisonTime) >= comparisonInterval) {
         getEsphomeState();
-        bool match = compareWithESPHOME();
-        if (!match) {
-            ESP_LOGW(TAG, "Global variables differ from internal state");
-            }
         lastComparisonTime = currentTime;
-    }
+        }
 }
 
 } // namespace HVAC
