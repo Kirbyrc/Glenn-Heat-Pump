@@ -3,8 +3,28 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include <cstring>
 #include "driver/uart.h"
 #include "esp_http_server.h"
+#include "cn105_types.h"
+
+// Compare char* fields between heatpumpSettings and wantedHeatpumpSettings
+// Returns true if all char* fields match (power, mode, fan, vane, wideVane)
+inline bool compareCurrentHpsettingstoWantedHpSettings(const heatpumpSettings& current, const wantedHeatpumpSettings& wanted) {
+    // Helper lambda for safe string comparison (handles nullptr)
+    auto safeCompare = [](const char* a, const char* b) -> bool {
+        if (a == nullptr && b == nullptr) return true;
+        if (a == nullptr || b == nullptr) return false;
+        return strcasecmp(a, b) == 0;
+    };
+
+    return safeCompare(current.power, wanted.power) &&
+           safeCompare(current.mode, wanted.mode) &&
+           safeCompare(current.fan, wanted.fan) &&
+           safeCompare(current.vane, wanted.vane) &&
+           safeCompare(current.wideVane, wanted.wideVane)&&
+           current.temperature == wanted.temperature;
+}
 
 #define HP_UART_NUM UART_NUM_1
 #define RE_UART_NUM UART_NUM_2
@@ -36,10 +56,45 @@ struct DataBuffer {
     uint8_t length; //This is the length of the packet
 };
 
+struct HeatpumpState {
+    uint8_t power=1;
+    uint8_t mode=2;
+    uint8_t fan=3;
+    uint8_t setTemp=20;
+    uint8_t actualTemp=18;
+    uint8_t vertVane=3;
+    uint8_t horiVane=1;
+
+    bool operator==(const HeatpumpState& other) const {
+        return power == other.power &&
+               mode == other.mode &&
+               fan == other.fan &&
+               setTemp == other.setTemp &&
+               actualTemp == other.actualTemp &&
+               vertVane == other.vertVane &&
+               horiVane == other.horiVane;
+    }
+
+    bool operator!=(const HeatpumpState& other) const {
+        return !(*this == other);
+    }
+
+    HeatpumpState& operator=(const HeatpumpState& other) {
+        power = other.power;
+        mode = other.mode;
+        fan = other.fan;
+        setTemp = other.setTemp;
+        actualTemp = other.actualTemp;
+        vertVane = other.vertVane;
+        horiVane = other.horiVane;
+        return *this;
+    }
+};
+
 class HPEmulator {
     friend esp_err_t heatpump_status_handler(httpd_req_t *req);
 public:
-    HPEmulator(); // Constructor
+    HPEmulator() = default; // Constructor
 
     // --- Static Constants
     const uint8_t HEADER[5] = { 0xfc, 0x42, 0x01, 0x30, 0x10 };
@@ -72,27 +127,23 @@ public:
     const uint8_t TIMER_MODE[4]       = {0x00,  0x01,  0x02, 0x03};
     const char* TIMER_MODE_MAP[4]  = {"NONE", "OFF", "ON", "BOTH"};
 
-    // --- Initialization ---
-    void stateInit(uint8_t power, uint8_t mode, uint8_t fan_speed,
-              uint8_t set_temp, uint8_t act_temp, uint8_t vane_vertical,
-              uint8_t vane_horizontal);
-    
+
     // --- Primary Entry Points ---
     void setup();
     void run();
 
     // --- Setters ---
-    bool setPower(uint8_t value);
-    bool setMode(uint8_t value);
+    void setPower(uint8_t value);
+    void setMode(uint8_t value);
     void setFanSpeed(uint8_t value);
     void setTargetTemp(uint8_t value);
     void setActualTemp(uint8_t value);
     void setVaneVertical(uint8_t value);
     void setVaneHorizontal(uint8_t value);
 
-    // --- Comparison ---
+    // --- Comparison / Debug ---
     void getEsphomeState();
-    bool compareWithESPHOME() const;
+    void debugHPState(const char* label, const HeatpumpState& state);
 
     // --- Logic Methods ---
     const char* lookupByteMapValue(const char* const valuesMap[], const uint8_t byteMap[], int len, uint8_t byteValue);
@@ -102,8 +153,6 @@ public:
     void send_config_response_to_remote(struct DataBuffer* dbuf, uart_port_t uart_num);
     void send_remote_state_to_heatpump(struct DataBuffer* dbuf, uart_port_t uart_num);
     void send_heatpump_state_to_remote(struct DataBuffer* dbuf, uart_port_t uart_num);
-    void print_utility(const char* data);
-    void print_byte(uint8_t byte, const char* mess1, const char* mess2);
     void print_packet(struct DataBuffer* dbuf, const char* mess1, const char* mess2);
     void add_checksum_to_packet(struct DataBuffer* dbuf);
     bool check_checksum(struct DataBuffer* dbuf);
@@ -112,28 +161,17 @@ public:
     void process_port_emulator(struct DataBuffer* dbuf, uart_port_t uart_num);
     void* start_webserver();
     bool uartInit();
+    void createEsphomeWantedRecord();
 
 private:
     // Emulator State Variables
-    uint8_t emulatorPower;
-    uint8_t emulatorMode;
-    uint8_t emulatorFan;
-    uint8_t emulatorSetTemp;
-    uint8_t emulatorActualTemp;
-    uint8_t emulatorVertVane;
-    uint8_t emulatorHoriVane;
-
-    // ESPHome state variables
-    uint8_t esphomePower;
-    uint8_t esphomeMode;
-    uint8_t esphomeFan;
-    uint8_t esphomeSetTemp;
-    uint8_t esphomeActualTemp;
-    uint8_t esphomeVertVane;
-    uint8_t esphomeHoriVane;
-
+    HeatpumpState emulatorState;
+    HeatpumpState esphomeState;
+    DataBuffer Stim_buffer; //used to build stimulus
+DataBuffer Remote_buffer; //used to receive from remote
+ 
     // Flag to indicate if the webserver has been started
-    bool _webserver_started;
+    bool _webserver_started=false;
 };
 
 } // namespace HVAC

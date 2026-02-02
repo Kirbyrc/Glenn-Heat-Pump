@@ -15,84 +15,81 @@ namespace HVAC {
 
 static const char *TAG = "HPE_Core";
 
-// Constructor initializes variables with default values
-HPEmulator::HPEmulator() :
-    emulatorPower(1), emulatorMode(2), emulatorFan(3), emulatorSetTemp(20), emulatorActualTemp(18),
-    emulatorVertVane(3), emulatorHoriVane(1), _webserver_started(false) {
+// Helper function to check if all core char* fields in wantedHeatpumpSettings are non-null
+// Returns true if power, mode, fan, vane, and wideVane are all set
+static bool areWantedSettingsIntialized(const wantedHeatpumpSettings& settings) {
+    return (settings.power != nullptr &&
+            settings.mode != nullptr &&
+            settings.fan != nullptr &&
+            settings.vane != nullptr &&
+            settings.wideVane != nullptr);
 }
 
-// --- Initialization Method ---
-void HPEmulator::stateInit(uint8_t power, uint8_t mode, uint8_t fan_speed,
-                      uint8_t set_temp, uint8_t act_temp, uint8_t vane_vertical,
-                      uint8_t vane_horizontal) {
-    emulatorPower = power;
-    emulatorMode = mode;
-    emulatorFan = fan_speed;
-    emulatorSetTemp = set_temp;
-    emulatorActualTemp = act_temp;
-    emulatorVertVane = vane_vertical;
-    emulatorHoriVane = vane_horizontal;
+static bool areCurrentSettingsIntialized(const heatpumpSettings& settings) {
+    return (settings.power != nullptr &&
+            settings.mode != nullptr &&
+            settings.fan != nullptr &&
+            settings.vane != nullptr &&
+            settings.wideVane != nullptr)&&
+            settings.temperature != -1.0f;
 }
 
 // --- Setters ---
-bool HPEmulator::setPower(uint8_t value) {
-    if (value > 1) {
-        ESP_LOGW(TAG, "Power Out of Range: %d", value);
-        return false;
-        }
-    else {
-        emulatorPower = value;
-        //g_cn105->wantedSettings.power = lookupByteMapValue(POWER_MAP, POWER, 2, value);
-        return true;
-        }
+void HPEmulator::setPower(uint8_t value) {
+    if (value > 1) ESP_LOGW(TAG, "Power Out of Range: %d", value);
+    else emulatorState.power = value;
     }
 
-bool HPEmulator::setMode(uint8_t value) {
-    if (value > 0x08) {
-        ESP_LOGW(TAG, "Mode Out of Range: %d", value);
-        return false;
-        }
-    else {
-        emulatorMode = value;
-        //g_cn105->wantedSettings.mode = lookupByteMapValue(MODE_MAP, MODE, 5, value);
-        return true;
-        }
+void HPEmulator::setMode(uint8_t value) {
+    if (value > 0x08) ESP_LOGW(TAG, "Mode Out of Range: %d", value);
+    else emulatorState.mode = value;      
     }
 
 void HPEmulator::setFanSpeed(uint8_t value) {
     if (value > 6) ESP_LOGW(TAG, "Fan Speed Out of Range: %d", value);
-    else emulatorFan = value;
+    else emulatorState.fan = value;
     }
 
 void HPEmulator::setTargetTemp(uint8_t value) {
     if (value < 0x10) ESP_LOGW(TAG, "Target Temp Out of Range: %d", value);
-    else emulatorSetTemp = value;
+    else emulatorState.setTemp = value;
 }
 
 void HPEmulator::setActualTemp(uint8_t value) {
     if (value < 0x10) ESP_LOGW(TAG, "Actual Temp Out of Range: %d", value);
-    else emulatorActualTemp = value;
+    else emulatorState.actualTemp = value;
 }
 
 void HPEmulator::setVaneVertical(uint8_t value) {
     if (value > 7) ESP_LOGW(TAG, "Vane Vertical Out of Range: %d", value);
-    else emulatorVertVane = value;
+    else emulatorState.vertVane = value;
 }
 
 void HPEmulator::setVaneHorizontal(uint8_t value) {
     if (value > 12) ESP_LOGW(TAG, "Vane Horizontal Out of Range: %d", value);
-    else emulatorHoriVane = value;
+    else emulatorState.horiVane = value;
 }
 
+void HPEmulator::debugHPState(const char* label, const HeatpumpState& state) {
+    ESP_LOGD(TAG, "[%s]-> [power: %s, mode: %s, fan: %s, setTemp: %d, actualTemp: %d, vane: %s, wideVane: %s]",
+        label,
+        lookupByteMapValue(POWER_MAP, POWER, 2, state.power),
+        lookupByteMapValue(MODE_MAP, MODE, 5, state.mode),
+        lookupByteMapValue(FAN_MAP, FAN, 6, state.fan),
+        state.setTemp,
+        state.actualTemp,
+        lookupByteMapValue(VANE_MAP, VANE, 7, state.vertVane),
+        lookupByteMapValue(WIDEVANE_MAP, WIDEVANE, 7, state.horiVane));
+}
 
-// --- Comparison ---
+// --- Pull the state from the esphome code ---
 void HPEmulator::getEsphomeState() {
     int index;
     
     if (g_cn105 == nullptr) {
-        ESP_LOGW(TAG, "g_cn105 is null, cannot get ESPHome state");
+        ESP_LOGE(TAG, "g_cn105 is null, cannot get ESPHome state");
         return;
-    }
+        }
 
     // Print currentSettings from CN105Climate (now public - KIRBY)
     // ESP_LOGD(TAG, "ESPHome currentSettings:");
@@ -104,75 +101,44 @@ void HPEmulator::getEsphomeState() {
     // ESP_LOGD(TAG, "  wideVane: %s", g_cn105->currentSettings.wideVane ? g_cn105->currentSettings.wideVane : "null");
 
     // Temperatures
-    esphomeSetTemp = (uint8_t)g_cn105->currentSettings.temperature;
-    esphomeActualTemp = (uint8_t)g_cn105->current_temperature;
+    esphomeState.setTemp = (uint8_t)g_cn105->currentSettings.temperature;
+    esphomeState.actualTemp = (uint8_t)g_cn105->current_temperature;
     
     // For the others: lookup byte value from string
     if (g_cn105->currentSettings.power) {
         index = lookupByteMapIndex(POWER_MAP, 2, g_cn105->currentSettings.power);
-        if (index <0) esphomePower = 0;
-        else esphomePower = POWER[index];
+        if (index <0) esphomeState.power = 0;
+        else esphomeState.power = POWER[index];
         }
 
     if (g_cn105->currentSettings.mode) {
         index = lookupByteMapIndex(MODE_MAP, 5, g_cn105->currentSettings.mode);
-        if (index <0) esphomeMode = 0;
+        if (index <0) esphomeState.mode = 0;
         else {
-            esphomeMode = MODE[index];
-            esphomePower = 1; // Ensure power is ON if mode is set
+            esphomeState.mode = MODE[index];
+            esphomeState.power = 1; // Ensure power is ON if mode is set
             }
         }
 
     if (g_cn105->currentSettings.fan) {
         index = lookupByteMapIndex(FAN_MAP, 6, g_cn105->currentSettings.fan);
-        if (index <0) esphomeFan = 0;
-        else esphomeFan = FAN[index];
+        if (index <0) esphomeState.fan = 0;
+        else esphomeState.fan = FAN[index];
         }
 
     if (g_cn105->currentSettings.vane) {
         index = lookupByteMapIndex(VANE_MAP, 7, g_cn105->currentSettings.vane);
-        if (index <0) esphomeVertVane = 0;
-        else esphomeVertVane = VANE[index];
+        if (index <0) esphomeState.vertVane = 0;
+        else esphomeState.vertVane = VANE[index];
         }
 
     if (g_cn105->currentSettings.wideVane) {
         index = lookupByteMapIndex(WIDEVANE_MAP, 7, g_cn105->currentSettings.wideVane);
-        if (index <0) esphomeHoriVane = 0;
-        else esphomeHoriVane = WIDEVANE[index];
+        if (index <0) esphomeState.horiVane = 0;
+        else esphomeState.horiVane = WIDEVANE[index];
         }
+    }  
 
-     // Push esphome state to emulator
-    emulatorPower = esphomePower;
-    emulatorMode = esphomeMode;
-    emulatorFan = esphomeFan;      
-    emulatorSetTemp = esphomeSetTemp;
-    emulatorActualTemp = esphomeActualTemp;
-    emulatorVertVane = esphomeVertVane;
-    emulatorHoriVane = esphomeHoriVane;
-    }
-
-bool HPEmulator::compareWithESPHOME() const {
-
-   if (esphomePower != emulatorPower) ESP_LOGD(TAG, "Power mismatch: ESPHome=%d, Emulator=%d", esphomePower, emulatorPower);
-   if (esphomeMode != emulatorMode) ESP_LOGD(TAG, "Mode mismatch: ESPHome=%d, Emulator=%d", esphomeMode, emulatorMode);
-   if (esphomeFan != emulatorFan) ESP_LOGD(TAG, "Fan mismatch: ESPHome=%d, Emulator=%d", esphomeFan, emulatorFan);
-   if (esphomeSetTemp != emulatorSetTemp) ESP_LOGD(TAG, "SetTemp mismatch: ESPHome=%d, Emulator=%d", esphomeSetTemp, emulatorSetTemp);
-   if (esphomeVertVane != emulatorVertVane) ESP_LOGD(TAG, "VertVane mismatch: ESPHome=%d, Emulator=%d", esphomeVertVane, emulatorVertVane);
-   if (esphomeHoriVane != emulatorHoriVane) ESP_LOGD(TAG, "HoriVane mismatch: ESPHome=%d, Emulator=%d", esphomeHoriVane, emulatorHoriVane);
-
-   return (esphomePower == emulatorPower &&
-           esphomeMode == emulatorMode &&
-           esphomeFan == emulatorFan &&
-           esphomeSetTemp == emulatorSetTemp &&
-           esphomeVertVane == emulatorVertVane &&
-           esphomeHoriVane == emulatorHoriVane);
-}
-
-// variables
-DataBuffer Stim_buffer; //used to build stimulus
-DataBuffer Remote_buffer; //used to receive from remote
-
-// --- Logic Methods ---
 
 void HPEmulator::print_packet(struct DataBuffer* dbuf, const char* mess1, const char* mess2) {
     char buf[256];  // Large enough for timestamp + header + all bytes
@@ -244,6 +210,43 @@ int HPEmulator::lookupByteMapIndex(const char* valuesMap[], int len, const char*
   return -1;
 }
 
+void HPEmulator::createEsphomeWantedRecord() {
+    if (g_cn105 == nullptr) {
+        ESP_LOGE(TAG, "g_cn105 is null, cannot create wanted record");
+        return;
+        }
+    
+    //getEsphomeState(); //update the esphome state variables (DO WE NEED THIS)
+    
+    if (!areCurrentSettingsIntialized(g_cn105->currentSettings)) {
+        ESP_LOGD(TAG, "Current settings are not initialized");
+        return;
+        }
+    
+    g_cn105->debugSettings("Wanted Settings -1 (no write)", g_cn105->wantedSettings);
+    //debugHPState("Emulator State", emulatorState);
+    //debugHPState("Esphome State", esphomeState);
+        
+    if (g_cn105->wantedSettings.hasChanged) {
+        ESP_LOGD(TAG, "Another change in progress, wait for opportunity");
+        return;
+        }
+
+    // Now we know the settings match
+    g_cn105->wantedSettings.power = lookupByteMapValue(POWER_MAP, POWER, 2, emulatorState.power);
+    g_cn105->wantedSettings.mode = lookupByteMapValue(MODE_MAP, MODE, 5, emulatorState.mode);
+    g_cn105->wantedSettings.fan = lookupByteMapValue(FAN_MAP, FAN, 6, emulatorState.fan);
+    g_cn105->wantedSettings.temperature = float(emulatorState.setTemp);
+    g_cn105->wantedSettings.vane = lookupByteMapValue(VANE_MAP, VANE, 7,  emulatorState.vertVane);
+    g_cn105->wantedSettings.wideVane = lookupByteMapValue(WIDEVANE_MAP, WIDEVANE, 7, emulatorState.horiVane);
+    g_cn105->debugSettings("Wanted Settings -2 (written)", g_cn105->wantedSettings);
+
+    if (true) {
+        g_cn105->wantedSettings.hasChanged = true;
+        g_cn105->debugSettings("Wanted Settings -Sent", g_cn105->wantedSettings);
+        }
+    }
+
 void HPEmulator::send_ping_response_to_remote(struct DataBuffer* dbuf, uart_port_t uart_num) {
     Stim_buffer.buf_pointer = sizeof(PING_RESPONSE);
     Stim_buffer.length = Stim_buffer.buf_pointer;
@@ -265,30 +268,27 @@ void HPEmulator::send_config_response_to_remote(struct DataBuffer* dbuf, uart_po
 void HPEmulator::send_remote_state_to_heatpump(struct DataBuffer* dbuf, uart_port_t uart_num) {
     uint8_t mask1 = dbuf->buffer[6];
     uint8_t mask2 = dbuf->buffer[7];
-    bool something_changed = false;
-
-    // build a wanted state record from current eshpome state
-    if (g_cn105 != nullptr) { //this code only works if connected to esphome
-        g_cn105->wantedSettings = g_cn105->currentSettings; //initialize wantedSettings from current settings
-        g_cn105->debugSettings("KIRBPREWANTED", g_cn105->wantedSettings);
-
-        if (mask1 & 0x01) something_changed |= setPower(dbuf->buffer[8]);
-        if (mask1 & 0x02) something_changed |= setMode(dbuf->buffer[9]);
-        if (mask1 & 0x04) {
-            uint8_t temp = (dbuf->buffer[19] & 0x7f) >> 1;
-            setTargetTemp(temp);
-            setActualTemp(temp - 2); // For simplicity, set actual temp to target temp minus 2 degrees
-            }
-        if (mask1 & 0x08) setFanSpeed(dbuf->buffer[11]);
-        if (mask1 & 0x10) setVaneVertical(dbuf->buffer[12]);        
-        if (mask2 & 0x01) setVaneHorizontal(dbuf->buffer[18]);
-        if (something_changed) {
-           //if (!g_cn105->wantedSettings.power) g_cn105->wantedSettings.power="OFF";
-           //g_cn105->wantedSettings.hasChanged = true;
-           //g_cn105->debugSettings("KIRBWANTED", g_cn105->wantedSettings);
-           }   
-        }   
     
+    HeatpumpState tempState = emulatorState;
+    debugHPState("Before Emulator State", emulatorState);
+
+    if (mask1 & 0x01) setPower(dbuf->buffer[8]);
+    if (mask1 & 0x02) setMode(dbuf->buffer[9]);
+    if (mask1 & 0x04) {
+        uint8_t temp = (dbuf->buffer[19] & 0x7f) >> 1;
+        setTargetTemp(temp);
+        setActualTemp(temp - 2); // For simplicity, set actual temp to target temp minus 2 degrees
+        }
+    if (mask1 & 0x08) setFanSpeed(dbuf->buffer[11]);
+    if (mask1 & 0x10) setVaneVertical(dbuf->buffer[12]);        
+    if (mask2 & 0x01) setVaneHorizontal(dbuf->buffer[18]);
+
+    //now create the data to send to esphome if a change happened
+    if (tempState != emulatorState) {
+        debugHPState("After Emulator State", emulatorState);
+        //createEsphomeWantedRecord(); // this breaks the code
+    }
+           
     // send the response packet
     Stim_buffer.buf_pointer = sizeof(CONTROL_RESPONSE);
     Stim_buffer.length = Stim_buffer.buf_pointer;
@@ -304,22 +304,24 @@ void HPEmulator::send_heatpump_state_to_remote(struct DataBuffer* dbuf, uart_por
     memcpy(Stim_buffer.buffer, INFO_RESPONSE, sizeof(INFO_RESPONSE));
     uint8_t info_mode = dbuf->buffer[5];
     Stim_buffer.buffer[5] = info_mode;
-
     switch(info_mode) {
         case 0x02: {
             //settings request
-            Stim_buffer.buffer[8] = emulatorPower;
-            Stim_buffer.buffer[9] = emulatorMode;
-            Stim_buffer.buffer[10] = emulatorSetTemp;
-            Stim_buffer.buffer[11] = emulatorFan;
-            Stim_buffer.buffer[12] = emulatorVertVane;
-            Stim_buffer.buffer[14] = emulatorHoriVane;
-            Stim_buffer.buffer[16] = (emulatorSetTemp << 1) | 0x80; //target temp in bits 1-7
+            emulatorState = esphomeState; //sync the emulator state to esphome state
+            debugHPState("Send to Remote common State", emulatorState);
+            Stim_buffer.buffer[8] = emulatorState.power;
+            Stim_buffer.buffer[9] = emulatorState.mode;
+            Stim_buffer.buffer[10] = emulatorState.setTemp;
+            Stim_buffer.buffer[11] = emulatorState.fan;
+            Stim_buffer.buffer[12] = emulatorState.vertVane;
+            Stim_buffer.buffer[14] = emulatorState.horiVane;
+            Stim_buffer.buffer[16] = (emulatorState.setTemp << 1) | 0x80; //target temp in bits 1-7
             break;
         }
         case 0x03: {
             // room temp request
-            Stim_buffer.buffer[11] = (emulatorActualTemp << 1) | 0x80; //target temp in bits 1-7
+            //copyEsphomeStateToEmulator();
+            Stim_buffer.buffer[11] = (emulatorState.actualTemp << 1) | 0x80; //target temp in bits 1-7
             break;
         }
         case 0x04: {
@@ -683,40 +685,40 @@ esp_err_t heatpump_status_handler(httpd_req_t *req) {
 </html>
 )",
         "",
-        hp->lookupByteMapValue(hp->POWER_MAP, hp->POWER, 2, hp->emulatorPower),
-        hp->lookupByteMapValue(hp->POWER_MAP, hp->POWER, 2, hp->esphomePower),
+        hp->lookupByteMapValue(hp->POWER_MAP, hp->POWER, 2, hp->emulatorState.power),
+        hp->lookupByteMapValue(hp->POWER_MAP, hp->POWER, 2, hp->esphomeState.power),
 
         "",
-        hp->lookupByteMapValue(hp->MODE_MAP, hp->MODE, 5, hp->emulatorMode),
-        hp->lookupByteMapValue(hp->MODE_MAP, hp->MODE, 5, hp->esphomeMode),
+        hp->lookupByteMapValue(hp->MODE_MAP, hp->MODE, 5, hp->emulatorState.mode),
+        hp->lookupByteMapValue(hp->MODE_MAP, hp->MODE, 5, hp->esphomeState.mode),
 
         "",
-        hp->lookupByteMapValue(hp->FAN_MAP, hp->FAN, 6, hp->emulatorFan),
-        hp->lookupByteMapValue(hp->FAN_MAP, hp->FAN, 6, hp->esphomeFan),
+        hp->lookupByteMapValue(hp->FAN_MAP, hp->FAN, 6, hp->emulatorState.fan),
+        hp->lookupByteMapValue(hp->FAN_MAP, hp->FAN, 6, hp->esphomeState.fan),
 
         "",
-        hp->emulatorSetTemp,
-        hp->esphomeSetTemp,
+        hp->emulatorState.setTemp,
+        hp->esphomeState.setTemp,
 
         "",
-        (hp->emulatorSetTemp * 9 / 5) + 32,
-        (hp->esphomeSetTemp * 9 / 5) + 32,
+        (hp->emulatorState.setTemp * 9 / 5) + 32,
+        (hp->esphomeState.setTemp * 9 / 5) + 32,
 
         "",
-        hp->emulatorActualTemp,
-        hp->esphomeActualTemp,
+        hp->emulatorState.actualTemp,
+        hp->esphomeState.actualTemp,
 
         "",
-        (hp->emulatorActualTemp * 9 / 5) + 32,
-        (hp->esphomeActualTemp * 9 / 5) + 32,
+        (hp->emulatorState.actualTemp * 9 / 5) + 32,
+        (hp->esphomeState.actualTemp * 9 / 5) + 32,
 
         "",
-        hp->lookupByteMapValue(hp->VANE_MAP, hp->VANE, 7, hp->emulatorVertVane),
-        hp->lookupByteMapValue(hp->VANE_MAP, hp->VANE, 7, hp->esphomeVertVane),
+        hp->lookupByteMapValue(hp->VANE_MAP, hp->VANE, 7, hp->emulatorState.vertVane),
+        hp->lookupByteMapValue(hp->VANE_MAP, hp->VANE, 7, hp->esphomeState.vertVane),
 
         "",
-        hp->lookupByteMapValue(hp->WIDEVANE_MAP, hp->WIDEVANE, 7, hp->emulatorHoriVane),
-        hp->lookupByteMapValue(hp->WIDEVANE_MAP, hp->WIDEVANE, 7, hp->esphomeHoriVane)
+        hp->lookupByteMapValue(hp->WIDEVANE_MAP, hp->WIDEVANE, 7, hp->emulatorState.horiVane),
+        hp->lookupByteMapValue(hp->WIDEVANE_MAP, hp->WIDEVANE, 7, hp->esphomeState.horiVane)
     );
 
     if (len < 0 || len >= sizeof(html)) {
@@ -790,11 +792,12 @@ void HPEmulator::run() {
 
     // Get ESPHome state every second
     static uint64_t lastComparisonTime = 0;
-    const uint64_t comparisonInterval = 1000; // 1 second in milliseconds
+    const uint64_t comparisonInterval = 2000; // 1 second in milliseconds
 
     uint64_t currentTime = esp_timer_get_time() / 1000; // Convert microseconds to milliseconds
     if ((currentTime - lastComparisonTime) >= comparisonInterval) {
         getEsphomeState();
+        emulatorState=esphomeState; //sync emulator to esphome every second
         lastComparisonTime = currentTime;
         }
 }
