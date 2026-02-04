@@ -6,6 +6,7 @@
 #include <cstring>
 #include "driver/uart.h"
 #include "esp_http_server.h"
+#include "esp_timer.h"
 #include "cn105_types.h"
 
 // Compare char* fields between heatpumpSettings and wantedHeatpumpSettings
@@ -70,9 +71,8 @@ struct HeatpumpState {
                mode == other.mode &&
                fan == other.fan &&
                setTemp == other.setTemp &&
-               actualTemp == other.actualTemp &&
-               vertVane == other.vertVane &&
-               horiVane == other.horiVane;
+               vertVane == other.vertVane;
+               //horiVane == other.horiVane;
     }
 
     bool operator!=(const HeatpumpState& other) const {
@@ -133,13 +133,13 @@ public:
     void run();
 
     // --- Setters ---
-    void setPower(uint8_t value);
-    void setMode(uint8_t value);
-    void setFanSpeed(uint8_t value);
-    void setTargetTemp(uint8_t value);
-    void setActualTemp(uint8_t value);
-    void setVaneVertical(uint8_t value);
-    void setVaneHorizontal(uint8_t value);
+    void setPower(HeatpumpState* state, uint8_t value);
+    void setMode(HeatpumpState* state, uint8_t value);
+    void setFanSpeed(HeatpumpState* state, uint8_t value);
+    void setTargetTemp(HeatpumpState* state, uint8_t value);
+    void setActualTemp(HeatpumpState* state, uint8_t value);
+    void setVaneVertical(HeatpumpState* state, uint8_t value);
+    void setVaneHorizontal(HeatpumpState* state, uint8_t value);
 
     // --- Comparison / Debug ---
     void getEsphomeState();
@@ -161,17 +161,29 @@ public:
     void process_port_emulator(struct DataBuffer* dbuf, uart_port_t uart_num);
     void* start_webserver();
     bool uartInit();
-    void createEsphomeWantedRecord();
+    void sendEmulatorStateToEngine();
+    void updateEmulatorStateFromEngine();
+    void checkForRemoteStateChange();
+    void getEsphomeStatefromEngine();
+    void simpleOperation();
+
 
 private:
     // Emulator State Variables
     HeatpumpState emulatorState;
     HeatpumpState esphomeState;
+    HeatpumpState remoteState;
+    uint64_t remoteLastUpdateTime=0;
+    uint64_t engineUpTime=0;
+
     DataBuffer Stim_buffer; //used to build stimulus
-DataBuffer Remote_buffer; //used to receive from remote
+    DataBuffer Remote_buffer; //used to receive from remote
  
     // Flag to indicate if the webserver has been started
     bool _webserver_started=false;
+    bool engineUP=false;
+    bool systemUP=false;
+    bool remoteInControl=false;
 };
 
 } // namespace HVAC

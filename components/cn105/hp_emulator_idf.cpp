@@ -30,45 +30,45 @@ static bool areCurrentSettingsIntialized(const heatpumpSettings& settings) {
             settings.mode != nullptr &&
             settings.fan != nullptr &&
             settings.vane != nullptr &&
-            settings.wideVane != nullptr)&&
-            settings.temperature != -1.0f;
+            settings.wideVane != nullptr);
+
 }
 
 // --- Setters ---
-void HPEmulator::setPower(uint8_t value) {
+void HPEmulator::setPower(HeatpumpState* state, uint8_t value) {
     if (value > 1) ESP_LOGW(TAG, "Power Out of Range: %d", value);
-    else emulatorState.power = value;
+    else state->power = value; 
     }
 
-void HPEmulator::setMode(uint8_t value) {
+void HPEmulator::setMode(HeatpumpState* state, uint8_t value) {
     if (value > 0x08) ESP_LOGW(TAG, "Mode Out of Range: %d", value);
-    else emulatorState.mode = value;      
+    else state->mode = value;
     }
 
-void HPEmulator::setFanSpeed(uint8_t value) {
+void HPEmulator::setFanSpeed(HeatpumpState* state, uint8_t value) {
     if (value > 6) ESP_LOGW(TAG, "Fan Speed Out of Range: %d", value);
-    else emulatorState.fan = value;
+    else state->fan = value;
     }
 
-void HPEmulator::setTargetTemp(uint8_t value) {
+void HPEmulator::setTargetTemp(HeatpumpState* state, uint8_t value) {
     if (value < 0x10) ESP_LOGW(TAG, "Target Temp Out of Range: %d", value);
-    else emulatorState.setTemp = value;
-}
+    else state->setTemp = value;
+    }
 
-void HPEmulator::setActualTemp(uint8_t value) {
+void HPEmulator::setActualTemp(HeatpumpState* state, uint8_t value) {
     if (value < 0x10) ESP_LOGW(TAG, "Actual Temp Out of Range: %d", value);
-    else emulatorState.actualTemp = value;
-}
+    else state->actualTemp = value;
+    }
 
-void HPEmulator::setVaneVertical(uint8_t value) {
+void HPEmulator::setVaneVertical(HeatpumpState* state, uint8_t value) {
     if (value > 7) ESP_LOGW(TAG, "Vane Vertical Out of Range: %d", value);
-    else emulatorState.vertVane = value;
-}
+    else state->vertVane = value;
+    }
 
-void HPEmulator::setVaneHorizontal(uint8_t value) {
+void HPEmulator::setVaneHorizontal(HeatpumpState* state, uint8_t value) {
     if (value > 12) ESP_LOGW(TAG, "Vane Horizontal Out of Range: %d", value);
-    else emulatorState.horiVane = value;
-}
+    else state->horiVane = value;
+    }
 
 void HPEmulator::debugHPState(const char* label, const HeatpumpState& state) {
     ESP_LOGD(TAG, "[%s]-> [power: %s, mode: %s, fan: %s, setTemp: %d, actualTemp: %d, vane: %s, wideVane: %s]",
@@ -79,18 +79,24 @@ void HPEmulator::debugHPState(const char* label, const HeatpumpState& state) {
         state.setTemp,
         state.actualTemp,
         lookupByteMapValue(VANE_MAP, VANE, 7, state.vertVane),
-        lookupByteMapValue(WIDEVANE_MAP, WIDEVANE, 7, state.horiVane));
+        lookupByteMapValue(WIDEVANE_MAP, WIDEVANE, 7, state.horiVane)
+        );
 }
 
 // --- Pull the state from the esphome code ---
-void HPEmulator::getEsphomeState() {
+void HPEmulator::getEsphomeStatefromEngine() {
     int index;
+    HeatpumpState tempState;
     
     if (g_cn105 == nullptr) {
         ESP_LOGE(TAG, "g_cn105 is null, cannot get ESPHome state");
         return;
         }
 
+    if (!areCurrentSettingsIntialized(g_cn105->currentSettings)) {
+        ESP_LOGD(TAG, "Current settings are not initialized");
+        return;
+        }
     // Print currentSettings from CN105Climate (now public - KIRBY)
     // ESP_LOGD(TAG, "ESPHome currentSettings:");
     // ESP_LOGD(TAG, "  power: %s", g_cn105->currentSettings.power ? g_cn105->currentSettings.power : "null");
@@ -101,44 +107,155 @@ void HPEmulator::getEsphomeState() {
     // ESP_LOGD(TAG, "  wideVane: %s", g_cn105->currentSettings.wideVane ? g_cn105->currentSettings.wideVane : "null");
 
     // Temperatures
-    esphomeState.setTemp = (uint8_t)g_cn105->currentSettings.temperature;
-    esphomeState.actualTemp = (uint8_t)g_cn105->current_temperature;
+    tempState.setTemp = (uint8_t)g_cn105->currentSettings.temperature;
+    tempState.actualTemp = (uint8_t)g_cn105->current_temperature;
     
     // For the others: lookup byte value from string
     if (g_cn105->currentSettings.power) {
         index = lookupByteMapIndex(POWER_MAP, 2, g_cn105->currentSettings.power);
-        if (index <0) esphomeState.power = 0;
-        else esphomeState.power = POWER[index];
+        if (index <0) tempState.power = 0;
+        else tempState.power = POWER[index];
         }
 
     if (g_cn105->currentSettings.mode) {
         index = lookupByteMapIndex(MODE_MAP, 5, g_cn105->currentSettings.mode);
-        if (index <0) esphomeState.mode = 0;
+        if (index <0) tempState.mode = 0;
         else {
-            esphomeState.mode = MODE[index];
-            esphomeState.power = 1; // Ensure power is ON if mode is set
+            tempState.mode = MODE[index];
             }
         }
 
     if (g_cn105->currentSettings.fan) {
         index = lookupByteMapIndex(FAN_MAP, 6, g_cn105->currentSettings.fan);
-        if (index <0) esphomeState.fan = 0;
-        else esphomeState.fan = FAN[index];
+        if (index <0) tempState.fan = 0;
+        else tempState.fan = FAN[index];
         }
 
     if (g_cn105->currentSettings.vane) {
         index = lookupByteMapIndex(VANE_MAP, 7, g_cn105->currentSettings.vane);
-        if (index <0) esphomeState.vertVane = 0;
-        else esphomeState.vertVane = VANE[index];
+        if (index <0) tempState.vertVane = 0;
+        else tempState.vertVane = VANE[index];
         }
 
     if (g_cn105->currentSettings.wideVane) {
         index = lookupByteMapIndex(WIDEVANE_MAP, 7, g_cn105->currentSettings.wideVane);
-        if (index <0) esphomeState.horiVane = 0;
-        else esphomeState.horiVane = WIDEVANE[index];
+        if (index <0) tempState.horiVane = 0;
+        else tempState.horiVane = WIDEVANE[index];
         }
-    }  
+    
+    if (tempState != esphomeState) {
+        esphomeState = tempState;
+        ESP_LOGD(TAG, "Esphome state updated from Esphome Engine:");
+        debugHPState("Updated Esphome State from Esphome Engine", esphomeState);
+        debugHPState("esphome Engine state ready to be copied to esphomeState", tempState);
+        }
+    
+    // the engine is intialized
+    if (engineUpTime ==0) {
+        engineUpTime = esp_timer_get_time() / 1000; // Convert microseconds to milliseconds
+        ESP_LOGD(TAG, "The Engine is up");
+        }   
 
+    }
+
+void HPEmulator::sendEmulatorStateToEngine() {
+    if (g_cn105 == nullptr) {
+        ESP_LOGE(TAG, "g_cn105 is null, cannot create wanted record");
+        return;
+        }
+
+    if (!areCurrentSettingsIntialized(g_cn105->currentSettings)) {
+        ESP_LOGD(TAG, "Emulator Engine is not up, will try again");
+        return;
+        }
+
+    if (g_cn105->wantedSettings.hasChanged) {
+        ESP_LOGD(TAG, "Another Engine change is in progress, waiting for opportunity");
+        return;
+        }
+
+    //g_cn105->debugSettings("Wanted Settings at prior to update)", g_cn105->wantedSettings);
+
+    // Now we know the settings match
+    g_cn105->wantedSettings.power = lookupByteMapValue(POWER_MAP, POWER, 2, emulatorState.power);
+    g_cn105->wantedSettings.mode = lookupByteMapValue(MODE_MAP, MODE, 5, emulatorState.mode);
+    g_cn105->wantedSettings.fan = lookupByteMapValue(FAN_MAP, FAN, 6, emulatorState.fan);
+    g_cn105->wantedSettings.temperature = float(emulatorState.setTemp);
+    g_cn105->wantedSettings.vane = lookupByteMapValue(VANE_MAP, VANE, 7,  emulatorState.vertVane);
+    g_cn105->wantedSettings.wideVane = lookupByteMapValue(WIDEVANE_MAP, WIDEVANE, 7, emulatorState.horiVane);
+  
+    //sending state
+    g_cn105->wantedSettings.hasChanged = true;
+    g_cn105->debugSettings("Settings Sent to Engine based on Emulator State", g_cn105->wantedSettings);
+    }
+
+void HPEmulator::simpleOperation() {
+    //calling this will update esphomeState from the Engine and emulator state from the remote
+    //used to test to see if you screwed up the serial port logic
+    getEsphomeStatefromEngine();
+    debugHPState("esphomeState pulled from engine", esphomeState);
+    if (remoteState != emulatorState) {
+        emulatorState = remoteState;
+        debugHPState("Emulator State updated from Remote State", emulatorState);
+        }
+    }
+
+void HPEmulator::updateEmulatorStateFromEngine() {
+    // Compare emulatorState to esphomeState
+    // If different, update emulatorState from esphomeState
+
+    // static uint64_t lastComparisonTime = 0;
+    // const uint64_t comparisonInterval = 2000; // 2 seconds in milliseconds
+    // uint64_t currentTime = esp_timer_get_time() / 1000; // Convert microseconds to millisecond
+    getEsphomeStatefromEngine();
+    if (emulatorState != esphomeState) {
+        emulatorState = esphomeState;
+        debugHPState("Emulator State updated from Esphome State", emulatorState);
+        }  
+
+    // don't update current state until 2 seconds after Engine was written
+    // if ((currentTime - remoteLastUpdateTime) >= comparisonInterval) {
+    //     getEsphomeStatefromEngine();
+    //     if (emulatorState != esphomeState) {
+    //         emulatorState = esphomeState;
+    //         debugHPState("Emulator State updated from Esphome State", emulatorState);
+    //         }  
+    //     lastComparisonTime = currentTime;
+    //     }
+    }    
+     
+void HPEmulator::checkForRemoteStateChange() {
+    // Compare remoteState to emulatorState
+    // If different, initial remoteInControl and remoteLastUpdateTime
+    // If different, update, esphomeState and esphome engine
+    // Set timer so that remoteinControl will stay for 5 seconds
+       
+    static HeatpumpState lastRemoteState;
+    uint64_t currentTime = esp_timer_get_time() / 1000; // Convert microseconds to milliseconds 
+
+    if (remoteState != lastRemoteState && !remoteInControl && systemUP) {
+        ESP_LOGD(TAG, "Remote state change detected, remoteInControl set to true.");
+        debugHPState("Remote State Value", remoteState);
+        debugHPState("Last Remote State Value", lastRemoteState);
+        remoteInControl = true;
+        remoteLastUpdateTime = currentTime; 
+        emulatorState = remoteState;
+        esphomeState = remoteState;
+        lastRemoteState = remoteState;
+        sendEmulatorStateToEngine();
+        debugHPState("Emulator/Esphome State updated from Remote State", emulatorState);
+        }
+    
+    const uint64_t comparisonInterval = 30000; // 30 seconds in milliseconds
+    static uint64_t lastComparisonTime = 0;
+    if ((currentTime - remoteLastUpdateTime) >= comparisonInterval) {
+        if (remoteInControl) {
+            remoteInControl = false;
+            ESP_LOGD(TAG, "Cleared remoteInControl.");
+            }   
+        lastComparisonTime = currentTime;
+        }
+    }
 
 void HPEmulator::print_packet(struct DataBuffer* dbuf, const char* mess1, const char* mess2) {
     char buf[256];  // Large enough for timestamp + header + all bytes
@@ -210,43 +327,6 @@ int HPEmulator::lookupByteMapIndex(const char* valuesMap[], int len, const char*
   return -1;
 }
 
-void HPEmulator::createEsphomeWantedRecord() {
-    if (g_cn105 == nullptr) {
-        ESP_LOGE(TAG, "g_cn105 is null, cannot create wanted record");
-        return;
-        }
-    
-    //getEsphomeState(); //update the esphome state variables (DO WE NEED THIS)
-    
-    if (!areCurrentSettingsIntialized(g_cn105->currentSettings)) {
-        ESP_LOGD(TAG, "Current settings are not initialized");
-        return;
-        }
-    
-    g_cn105->debugSettings("Wanted Settings -1 (no write)", g_cn105->wantedSettings);
-    //debugHPState("Emulator State", emulatorState);
-    //debugHPState("Esphome State", esphomeState);
-        
-    if (g_cn105->wantedSettings.hasChanged) {
-        ESP_LOGD(TAG, "Another change in progress, wait for opportunity");
-        return;
-        }
-
-    // Now we know the settings match
-    g_cn105->wantedSettings.power = lookupByteMapValue(POWER_MAP, POWER, 2, emulatorState.power);
-    g_cn105->wantedSettings.mode = lookupByteMapValue(MODE_MAP, MODE, 5, emulatorState.mode);
-    g_cn105->wantedSettings.fan = lookupByteMapValue(FAN_MAP, FAN, 6, emulatorState.fan);
-    g_cn105->wantedSettings.temperature = float(emulatorState.setTemp);
-    g_cn105->wantedSettings.vane = lookupByteMapValue(VANE_MAP, VANE, 7,  emulatorState.vertVane);
-    g_cn105->wantedSettings.wideVane = lookupByteMapValue(WIDEVANE_MAP, WIDEVANE, 7, emulatorState.horiVane);
-    g_cn105->debugSettings("Wanted Settings -2 (written)", g_cn105->wantedSettings);
-
-    if (true) {
-        g_cn105->wantedSettings.hasChanged = true;
-        g_cn105->debugSettings("Wanted Settings -Sent", g_cn105->wantedSettings);
-        }
-    }
-
 void HPEmulator::send_ping_response_to_remote(struct DataBuffer* dbuf, uart_port_t uart_num) {
     Stim_buffer.buf_pointer = sizeof(PING_RESPONSE);
     Stim_buffer.length = Stim_buffer.buf_pointer;
@@ -266,29 +346,27 @@ void HPEmulator::send_config_response_to_remote(struct DataBuffer* dbuf, uart_po
 }
 
 void HPEmulator::send_remote_state_to_heatpump(struct DataBuffer* dbuf, uart_port_t uart_num) {
+    //received a 0x41
+           
     uint8_t mask1 = dbuf->buffer[6];
     uint8_t mask2 = dbuf->buffer[7];
-    
-    HeatpumpState tempState = emulatorState;
-    debugHPState("Before Emulator State", emulatorState);
+        
+    debugHPState("Emulator State before 0x41", emulatorState);
 
-    if (mask1 & 0x01) setPower(dbuf->buffer[8]);
-    if (mask1 & 0x02) setMode(dbuf->buffer[9]);
+    if (mask1 & 0x01) setPower(&remoteState, dbuf->buffer[8]);
+    if (mask1 & 0x02) setMode(&remoteState, dbuf->buffer[9]);
     if (mask1 & 0x04) {
         uint8_t temp = (dbuf->buffer[19] & 0x7f) >> 1;
-        setTargetTemp(temp);
-        setActualTemp(temp - 2); // For simplicity, set actual temp to target temp minus 2 degrees
+        setTargetTemp(&remoteState, temp);
+        setActualTemp(&remoteState, temp - 2); // For simplicity, set actual temp to target temp minus 2 degrees
         }
-    if (mask1 & 0x08) setFanSpeed(dbuf->buffer[11]);
-    if (mask1 & 0x10) setVaneVertical(dbuf->buffer[12]);        
-    if (mask2 & 0x01) setVaneHorizontal(dbuf->buffer[18]);
+    if (mask1 & 0x08) setFanSpeed(&remoteState, dbuf->buffer[11]);
+    if (mask1 & 0x10) setVaneVertical(&remoteState, dbuf->buffer[12]);
+    if (mask2 & 0x01) setVaneHorizontal(&remoteState, dbuf->buffer[18]);
 
     //now create the data to send to esphome if a change happened
-    if (tempState != emulatorState) {
-        debugHPState("After Emulator State", emulatorState);
-        //createEsphomeWantedRecord(); // this breaks the code
-    }
-           
+    debugHPState("Remote State after 0x41", remoteState);
+               
     // send the response packet
     Stim_buffer.buf_pointer = sizeof(CONTROL_RESPONSE);
     Stim_buffer.length = Stim_buffer.buf_pointer;
@@ -299,6 +377,7 @@ void HPEmulator::send_remote_state_to_heatpump(struct DataBuffer* dbuf, uart_por
 }
 
 void HPEmulator::send_heatpump_state_to_remote(struct DataBuffer* dbuf, uart_port_t uart_num) {
+    //received a 0x62
     Stim_buffer.buf_pointer = sizeof(INFO_RESPONSE);
     Stim_buffer.length = Stim_buffer.buf_pointer;
     memcpy(Stim_buffer.buffer, INFO_RESPONSE, sizeof(INFO_RESPONSE));
@@ -307,8 +386,6 @@ void HPEmulator::send_heatpump_state_to_remote(struct DataBuffer* dbuf, uart_por
     switch(info_mode) {
         case 0x02: {
             //settings request
-            emulatorState = esphomeState; //sync the emulator state to esphome state
-            debugHPState("Send to Remote common State", emulatorState);
             Stim_buffer.buffer[8] = emulatorState.power;
             Stim_buffer.buffer[9] = emulatorState.mode;
             Stim_buffer.buffer[10] = emulatorState.setTemp;
@@ -320,7 +397,6 @@ void HPEmulator::send_heatpump_state_to_remote(struct DataBuffer* dbuf, uart_por
         }
         case 0x03: {
             // room temp request
-            //copyEsphomeStateToEmulator();
             Stim_buffer.buffer[11] = (emulatorState.actualTemp << 1) | 0x80; //target temp in bits 1-7
             break;
         }
@@ -343,11 +419,22 @@ void HPEmulator::send_heatpump_state_to_remote(struct DataBuffer* dbuf, uart_por
             break;
         }
     }
-
+    
+    debugHPState("Emulator State sent in 0x62", emulatorState);
     add_checksum_to_packet(&Stim_buffer);
     print_packet(&Stim_buffer, "Packet to", "RE");
     uart_write_bytes(uart_num, (const char*)Stim_buffer.buffer, Stim_buffer.buf_pointer);
-}
+
+    // address the System UP.   Assume that it is 15 seconds after engineUP
+    const uint64_t comparisonInterval = 15000; // 15 seconds in milliseconds
+    uint64_t currentTime = esp_timer_get_time() / 1000; // Convert microseconds to milliseconds
+    if ((currentTime - engineUpTime) >= comparisonInterval) {
+        if (!systemUP) {
+            systemUP = true;
+            ESP_LOGD(TAG, "System is UP.");
+            }
+        }
+    }
 
 void HPEmulator::process_packets(struct DataBuffer* dbuf, uart_port_t uart_num) {
     //print the incoming packet
@@ -773,11 +860,17 @@ void* HPEmulator::start_webserver() {
 void HPEmulator::setup() {
     ESP_LOGD(TAG, "Starting HPEmulator setup");
     if (!uartInit()) ESP_LOGE(TAG, "Failed to initialize UART");
-
+    
+    //initialize some variables
+    _webserver_started=false;
+    systemUP=false;
+    engineUpTime=0;
+    
     ESP_LOGD(TAG, "HPEmulator setup complete (webserver will start when network is ready)");
 }
 
 void HPEmulator::run() {
+    //read the serial port and update the emulator state
     process_port_emulator(&Remote_buffer, RE_UART_NUM);
 
     // Start webserver once network is available
@@ -789,15 +882,17 @@ void HPEmulator::run() {
             ESP_LOGE(TAG, "Failed to start web server");
         }
     }
+    
+    //look for any change frome the remote interface without delay
+    checkForRemoteStateChange();
 
     // Get ESPHome state every second
     static uint64_t lastComparisonTime = 0;
-    const uint64_t comparisonInterval = 2000; // 1 second in milliseconds
-
+    const uint64_t comparisonInterval = 1000; // 1 second in milliseconds
     uint64_t currentTime = esp_timer_get_time() / 1000; // Convert microseconds to milliseconds
     if ((currentTime - lastComparisonTime) >= comparisonInterval) {
-        getEsphomeState();
-        emulatorState=esphomeState; //sync emulator to esphome every second
+        updateEmulatorStateFromEngine();
+        //simpleOperation(); //used for testing only
         lastComparisonTime = currentTime;
         }
 }

@@ -374,12 +374,12 @@ namespace esphome {
     public:
         // KIRBY: Made public for HPEmulator access
         heatpumpSettings currentSettings{};
-        void heatpumpUpdate(heatpumpSettings& settings);
+        wantedHeatpumpSettings wantedSettings{};
         void debugSettings(const char* settingName, heatpumpSettings& settings);
         void debugSettings(const char* settingName, wantedHeatpumpSettings& settings);
-        wantedHeatpumpSettings wantedSettings{};
 
     private:
+        void heatpumpUpdate(heatpumpSettings& settings);
         heatpumpRunStates currentRunStates{};
         wantedHeatpumpRunStates wantedRunStates{};
         cycleManagement loopCycle{};
