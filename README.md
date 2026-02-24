@@ -1045,6 +1045,157 @@ climate:
 
 ```
 
+## HPEmulator Architecture (hp_emulator_idf)
+
+The HPEmulator component enables dual-control of Mitsubishi heat pumps by emulating a heatpump to a physical remote controller while synchronizing state with the ESPHome engine. This allows simultaneous control from both the physical remote and Home Assistant.
+
+### System Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                        ESPHome Framework                             │
+│            (Climate Component + Home Assistant Integration)          │
+└───────────────────────┬───────────────────────────────────────────────┘
+                        │
+        ┌───────────────┴────────────────┐
+        │                                │
+┌───────▼──────────────┐        ┌────────▼──────────────┐
+│  CN105Climate        │        │  HPEmulator           │
+│  (UART Port 1)       │        │  (UART Port 2)        │
+│  - Heatpump Comm     │        │  - Remote Emulation   │
+│  - Settings/Control  │        │  - Web UI (Port 81)   │
+└────────┬─────────────┘        └────────┬──────────────┘
+         │                               │
+    TX/RX Pin 17/16              TX/RX Pin 13/12
+    Baud: 2400                   Baud: 2400
+         │                               │
+    ┌────▼───────────────────────────────▼────┐
+    │   Mitsubishi Heat Pump CN105 Protocol   │
+    │   (8 bits, Even Parity, 1 Stop bit)     │
+    └────┬───────────────────────────────────┬┘
+         │                                   │
+    ┌────▼──────────────┐           ┌───────▼────────┐
+    │  Actual Heatpump  │           │  Remote Control│
+    │  (Indoor Unit)    │           │  (Physical)    │
+    └───────────────────┘           └────────────────┘
+```
+
+### State Management
+
+HPEmulator maintains three distinct state objects to coordinate between the remote controller, emulator, and ESPHome engine:
+
+```cpp
+struct HeatpumpState {
+    uint8_t power;       // 0=OFF, 1=ON
+    uint8_t mode;        // 0x01=HEAT, 0x02=DRY, 0x03=COOL, 0x07=FAN, 0x08=AUTO
+    uint8_t fan;         // 0-6 (AUTO, QUIET, 1-4)
+    uint8_t setTemp;     // Target temperature (16-31°C)
+    uint8_t actualTemp;  // Current room temperature
+    uint8_t vertVane;    // Vertical vane position (0-7)
+    uint8_t horiVane;    // Horizontal vane position
+};
+```
+
+| State Object | Purpose |
+|--------------|---------|
+| `remoteState` | State received from physical remote controller via 0x41 packets |
+| `emulatorState` | State presented to the remote controller via 0x62 responses |
+| `esphomeState` | State pulled from CN105Climate engine (actual heatpump) |
+
+### Communication Flow
+
+#### Remote Control Input Path
+
+1. User presses button on physical remote
+2. Remote sends packet to HPEmulator via UART2
+3. `process_port_emulator()` reads bytes and assembles packet
+4. `process_packets()` routes by command type (0x41 = control)
+5. `send_remote_state_to_heatpump()` parses packet, updates `remoteState`
+6. `checkForRemoteStateChange()` detects difference from last state
+7. If changed: sets `remoteInControl=true`, starts 30-second priority window
+8. `sendEmulatorStateToEngine()` writes to `CN105Climate.wantedSettings`
+9. CN105Climate sends control packet (0x41) to actual heatpump
+10. Heatpump responds with ACK, CN105Climate updates `currentSettings`
+11. Next sync cycle: `getEsphomeStatefromEngine()` pulls new state
+12. `emulatorState` updated to match actual heatpump
+13. Remote queries with 0x42 → HPEmulator responds with 0x62 containing new state
+
+#### Home Assistant Control Path
+
+1. User changes temperature in Home Assistant
+2. CN105Climate receives `control()` call
+3. `wantedSettings.hasChanged = true`
+4. Next `loop()` iteration sends control packet to heatpump
+5. Heatpump responds, `currentSettings` updated
+6. HPEmulator 1-second sync pulls new state via `updateEmulatorStateFromEngine()`
+7. Remote sees updated state when it next queries (0x62)
+
+### Key Methods
+
+| Method | Purpose |
+|--------|---------|
+| `setup()` | Initialize UART driver for remote communication |
+| `run()` | Main loop: read remote packets, sync states, manage web server |
+| `process_port_emulator()` | Byte-by-byte packet reading from remote UART |
+| `process_packets()` | Route packets by command type (0x5A, 0x41, 0x42, etc.) |
+| `checkForRemoteStateChange()` | Detect remote input and propagate to engine |
+| `updateEmulatorStateFromEngine()` | Sync emulator state from CN105Climate |
+| `sendEmulatorStateToEngine()` | Push emulator changes to CN105Climate.wantedSettings |
+| `getEsphomeStatefromEngine()` | Pull currentSettings from CN105Climate, convert to HeatpumpState |
+| `send_ping_response_to_remote()` | Respond to remote handshake (0x5A→0x7A) |
+| `send_remote_state_to_heatpump()` | Process control packet (0x41) from remote |
+| `send_heatpump_state_to_remote()` | Send state info (0x62) to remote |
+
+### Conflict Resolution
+
+When both remote and Home Assistant try to control simultaneously:
+
+- **Remote has priority during active change** (30-second window):
+  - `remoteInControl` flag set when remote state differs
+  - ESPHome changes are still sent but remote gets visual priority
+- **After timeout**: Normal synchronization resumes
+
+### Web Interface
+
+HPEmulator provides a diagnostic web interface on port 81 showing real-time comparison between:
+- Emulator state (what remote sees)
+- ESPHome state (actual heatpump settings)
+- Mismatches highlighted for debugging
+
+### Packet Protocol
+
+| Command | Name | Direction | Purpose |
+|---------|------|-----------|---------|
+| 0x5A | Ping | Remote→Emulator | Handshake, connection test |
+| 0x5B | Config | Remote→Emulator | Extended handshake |
+| 0x41 | Control | Remote→Emulator | Send commands (power, mode, temp, fan, vane) |
+| 0x42 | Info Request | Remote→Emulator | Query current state |
+| 0x7A | Ping Response | Emulator→Remote | Acknowledge ping |
+| 0x61 | Control ACK | Emulator→Remote | Acknowledge control command |
+| 0x62 | Info Response | Emulator→Remote | Return requested state |
+
+### Lookup Tables
+
+HPEmulator uses lookup tables to convert between protocol byte values and human-readable strings:
+
+```cpp
+const uint8_t MODE[5]      = {0x01,   0x02,  0x03, 0x07, 0x08};
+const char* MODE_MAP[5]    = {"HEAT", "DRY", "COOL", "FAN", "AUTO"};
+
+const uint8_t FAN[6]       = {0x00,  0x01,   0x02, 0x03, 0x05, 0x06};
+const char* FAN_MAP[6]     = {"AUTO", "QUIET", "1", "2", "3", "4"};
+```
+
+### UART Configuration
+
+| Parameter | CN105 (Heatpump) | Remote Emulator |
+|-----------|-----------------|-----------------|
+| UART Port | UART_NUM_1 | UART_NUM_2 |
+| TX Pin | GPIO17 | GPIO13 |
+| RX Pin | GPIO16 | GPIO12 |
+| Baud Rate | 2400 | 2400 |
+| Parity | Even | Even |
+
 ## Other Implementations
 
 - [esphome-mitsubishiheatpump](https://github.com/geoffdavis/esphome-mitsubishiheatpump) - The original esphome project from which this one is forked.
