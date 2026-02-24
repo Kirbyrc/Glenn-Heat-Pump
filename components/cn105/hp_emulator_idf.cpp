@@ -11,7 +11,7 @@
 
 // Global pointer to CN105Climate instance
 esphome::CN105Climate* g_cn105 = nullptr;
-// Global pointer to RE_UART - set from on_boot lambda in YAML
+// Global pointer to RE_UART - set from main.cpp after RE_UART is configured
 esphome::uart::IDFUARTComponent* g_re_uart = nullptr;
 
 namespace HVAC {
@@ -87,6 +87,7 @@ void HPEmulator::debugHPState(const char* label, const HeatpumpState& state) {
 }
 
 // --- Pull the state from the esphome code ---
+void HPEmulator::getEsphomeState() { getEsphomeStatefromEngine(); }
 void HPEmulator::getEsphomeStatefromEngine() {
     int index;
     HeatpumpState tempState;
@@ -493,6 +494,41 @@ void HPEmulator::process_port_emulator(struct DataBuffer* dbuf, uart_port_t uart
 }
 
 
+bool HPEmulator::uartInit() {
+    ESP_LOGD(TAG, "Initializing UART");
+
+    // Configure UART parameters
+    uart_config_t uart_config = {
+        .baud_rate = BAUD,
+        .data_bits = UART_DATA_8_BITS,
+        .parity = UART_PARITY_EVEN,
+        .stop_bits = UART_STOP_BITS_1,
+        .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
+        .rx_flow_ctrl_thresh = 122,
+        .source_clk = UART_SCLK_APB,
+        .flags = {},
+    };
+
+    // Install UART driver for RE_UART (Serial2)
+    if (uart_driver_install(RE_UART_NUM, 256 * 2, 0, 0, NULL, 0) != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to install UART driver");
+        return false;
+    }
+
+    if (uart_param_config(RE_UART_NUM, &uart_config) != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to configure UART parameters");
+        return false;
+    }
+
+    if (uart_set_pin(RE_UART_NUM, RE_TX2_PIN, RE_RX2_PIN, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE) != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to set UART pins");
+        return false;
+    }
+
+    ESP_LOGD(TAG, "UART initialized: TX=%d RX=%d Baud=%d", RE_TX2_PIN, RE_RX2_PIN, BAUD);
+    return true;
+}
+
 // Helper function to check if network is connected
 static bool is_network_connected() {
     esp_netif_t *netif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
@@ -827,7 +863,7 @@ void* HPEmulator::start_webserver() {
 
 void HPEmulator::setup() {
     ESP_LOGD(TAG, "Starting HPEmulator setup");
-    //if (!uartInit()) ESP_LOGE(TAG, "Failed to initialize UART");
+    if (!uartInit()) ESP_LOGE(TAG, "Failed to initialize UART");
     
     //initialize some variables
     _webserver_started=false;
@@ -839,8 +875,7 @@ void HPEmulator::setup() {
 
 void HPEmulator::run() {
     //read the serial port and update the emulator state
-    if (g_re_uart == nullptr) return;
-    process_port_emulator(&Remote_buffer, (uart_port_t)g_re_uart->get_hw_serial_number());
+    process_port_emulator(&Remote_buffer, RE_UART_NUM);
 
     // Start webserver once network is available
     if (!_webserver_started && is_network_connected()) {
