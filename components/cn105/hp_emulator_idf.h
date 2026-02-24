@@ -46,7 +46,7 @@ const int HP_TX1_PIN = 13; // TX1
 const int HP_RX1_PIN = 12; // RX1
 const int BAUD = 2400;
 
-const int WEBPORT = 81;
+const int WEBPORT = 8080;
 
 // --- Structs ---
 struct DataBuffer {
