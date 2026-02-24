@@ -28,15 +28,19 @@ inline bool compareCurrentHpsettingstoWantedHpSettings(const heatpumpSettings& c
 }
 
 #define HP_UART_NUM UART_NUM_1
-#define RE_UART_NUM UART_NUM_2
 
-// Forward declaration for CN105Climate
+// Forward declarations
 namespace esphome {
     class CN105Climate;
+    namespace uart {
+        class IDFUARTComponent;
+    }
 }
 
 // Global pointer to CN105Climate - set from CN105Climate::setup()
 extern esphome::CN105Climate* g_cn105;
+// Global pointer to RE_UART - set from main.cpp after RE_UART is configured
+extern esphome::uart::IDFUARTComponent* g_re_uart;
 
 namespace HVAC {
 
@@ -142,7 +146,6 @@ public:
     void setVaneHorizontal(HeatpumpState* state, uint8_t value);
 
     // --- Comparison / Debug ---
-    void getEsphomeState();
     void debugHPState(const char* label, const HeatpumpState& state);
 
     // --- Logic Methods ---
