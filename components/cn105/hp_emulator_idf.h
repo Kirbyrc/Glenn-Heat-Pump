@@ -28,15 +28,19 @@ inline bool compareCurrentHpsettingstoWantedHpSettings(const heatpumpSettings& c
 }
 
 #define HP_UART_NUM UART_NUM_1
-#define RE_UART_NUM UART_NUM_2
 
-// Forward declaration for CN105Climate
+// Forward declarations
 namespace esphome {
     class CN105Climate;
+    namespace uart {
+        class IDFUARTComponent;
+    }
 }
 
 // Global pointer to CN105Climate - set from CN105Climate::setup()
 extern esphome::CN105Climate* g_cn105;
+// Global pointer to RE_UART - set from on_boot lambda in YAML
+extern esphome::uart::IDFUARTComponent* g_re_uart;
 
 namespace HVAC {
 
@@ -160,7 +164,6 @@ public:
     void process_packets(struct DataBuffer* dbuf, uart_port_t uart_num);
     void process_port_emulator(struct DataBuffer* dbuf, uart_port_t uart_num);
     void* start_webserver();
-    bool uartInit();
     void sendEmulatorStateToEngine();
     void updateEmulatorStateFromEngine();
     void checkForRemoteStateChange();
