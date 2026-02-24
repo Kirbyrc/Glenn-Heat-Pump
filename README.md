@@ -1063,7 +1063,7 @@ The HPEmulator component enables dual-control of Mitsubishi heat pumps by emulat
 │  CN105Climate        │        │  HPEmulator           │
 │  (UART Port 1)       │        │  (UART Port 2)        │
 │  - Heatpump Comm     │        │  - Remote Emulation   │
-│  - Settings/Control  │        │  - Web UI (Port 81)   │
+│  - Settings/Control  │        │  - Web UI (Port 8080) │
 └────────┬─────────────┘        └────────┬──────────────┘
          │                               │
     TX/RX Pin 17/16              TX/RX Pin 13/12
@@ -1157,7 +1157,7 @@ When both remote and Home Assistant try to control simultaneously:
 
 ### Web Interface
 
-HPEmulator provides a diagnostic web interface on port 81 showing real-time comparison between:
+HPEmulator provides a diagnostic web interface on port 8080 showing real-time comparison between:
 - Emulator state (what remote sees)
 - ESPHome state (actual heatpump settings)
 - Mismatches highlighted for debugging
