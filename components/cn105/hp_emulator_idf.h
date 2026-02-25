@@ -44,13 +44,9 @@ extern esphome::uart::IDFUARTComponent* g_re_uart;
 
 namespace HVAC {
 
-const int RE_TX2_PIN = 11; // TX2
-const int RE_RX2_PIN = 10; // RX2
-const int HP_TX1_PIN = 13; // TX1
-const int HP_RX1_PIN = 12; // RX1
-const int BAUD = 2400;
-
-const int WEBPORT = 8080;
+#ifndef WEBPORT
+#define WEBPORT 8080
+#endif
 
 // --- Structs ---
 struct DataBuffer {

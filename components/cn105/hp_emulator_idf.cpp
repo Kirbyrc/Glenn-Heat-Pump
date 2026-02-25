@@ -499,8 +499,7 @@ bool HPEmulator::uartInit() {
         return false;
     }
     uart_port_t port = (uart_port_t)g_re_uart->get_hw_serial_number();
-    ESP_LOGD(TAG, "UART initialized by ESPHome (port %d): TX=%d RX=%d Baud=%d",
-        (int)port, RE_TX2_PIN, RE_RX2_PIN, BAUD);
+    ESP_LOGD(TAG, "UART initialized by ESPHome (port %d)", (int)port);
     return true;
 }
 
