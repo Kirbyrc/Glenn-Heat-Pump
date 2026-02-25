@@ -31,7 +31,6 @@
 #ifdef USE_ESP32
 #include <mutex>
 #endif
-namespace esphome { namespace uart { class IDFUARTComponent; } }
 
 namespace esphome {
 
@@ -151,7 +150,6 @@ namespace esphome {
         void set_baud_rate(int baud_rate);
         void set_tx_rx_pins(int tx_pin, int rx_pin);
         void set_uart_port(int uart_port) { this->uart_port_ = uart_port; }
-        void set_remote_uart(esphome::uart::IDFUARTComponent* uart);
         //void set_wifi_connected_state(bool state);
         void setupUART();
         void disconnectUART();

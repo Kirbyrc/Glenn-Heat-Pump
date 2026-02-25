@@ -14,10 +14,6 @@ esphome::CN105Climate* g_cn105 = nullptr;
 // Global pointer to RE_UART - set from main.cpp after RE_UART is configured
 esphome::uart::IDFUARTComponent* g_re_uart = nullptr;
 
-void esphome::CN105Climate::set_remote_uart(esphome::uart::IDFUARTComponent* uart) {
-    g_re_uart = uart;
-}
-
 namespace HVAC {
 
 static const char *TAG = "HPE_Core";
