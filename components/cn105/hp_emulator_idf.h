@@ -5,8 +5,8 @@
 #include <stdbool.h>
 #include <cstring>
 #include "driver/uart.h"
-#include "esp_http_server.h"
 #include "esp_timer.h"
+#include "esp_http_server.h"
 #include "cn105_types.h"
 
 // Compare char* fields between heatpumpSettings and wantedHeatpumpSettings
@@ -43,10 +43,6 @@ extern esphome::CN105Climate* g_cn105;
 extern esphome::uart::IDFUARTComponent* g_re_uart;
 
 namespace HVAC {
-
-#ifndef WEBPORT
-#define WEBPORT 8080
-#endif
 
 // --- Structs ---
 struct DataBuffer {
@@ -92,7 +88,9 @@ struct HeatpumpState {
 };
 
 class HPEmulator {
+#ifdef WEBPORT
     friend esp_err_t heatpump_status_handler(httpd_req_t *req);
+#endif
 public:
     HPEmulator() = default; // Constructor
 
@@ -158,7 +156,9 @@ public:
     void check_header(struct DataBuffer* dbuf);
     void process_packets(struct DataBuffer* dbuf, uart_port_t uart_num);
     void process_port_emulator(struct DataBuffer* dbuf, uart_port_t uart_num);
+#ifdef WEBPORT
     void* start_webserver();
+#endif
     bool uartInit();
     void sendEmulatorStateToEngine();
     void updateEmulatorStateFromEngine();
@@ -178,7 +178,7 @@ private:
     DataBuffer Stim_buffer; //used to build stimulus
     DataBuffer Remote_buffer; //used to receive from remote
  
-    // Flag to indicate if the webserver has been started
+
     bool _webserver_started=false;
     bool engineUP=false;
     bool systemUP=false;

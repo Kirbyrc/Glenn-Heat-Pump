@@ -6,8 +6,9 @@
 #include "driver/uart.h"
 #include "esphome.h"
 #include "esp_timer.h"
-#include "esp_http_server.h"
 #include "esp_netif.h"
+#include "esp_http_server.h"
+
 
 // Global pointer to CN105Climate instance
 esphome::CN105Climate* g_cn105 = nullptr;
@@ -518,6 +519,7 @@ static bool is_network_connected() {
     return false;
 }
 
+#ifdef WEBPORT
 // --- Web Server Implementation ---
 
 // Static web server handle
@@ -834,6 +836,7 @@ void* HPEmulator::start_webserver() {
     ESP_LOGE(TAG, "Error starting web server!");
     return NULL;
 }
+#endif // WEBPORT
 
 void HPEmulator::setup() {
     ESP_LOGD(TAG, "Starting HPEmulator setup");
@@ -852,6 +855,7 @@ void HPEmulator::run() {
     if (g_re_uart == nullptr) return;
     process_port_emulator(&Remote_buffer, (uart_port_t)g_re_uart->get_hw_serial_number());
 
+#ifdef WEBPORT
     // Start webserver once network is available
     if (!_webserver_started && is_network_connected()) {
         if (start_webserver()) {
@@ -861,6 +865,7 @@ void HPEmulator::run() {
             ESP_LOGE(TAG, "Failed to start web server");
         }
     }
+#endif
     
     //look for any change frome the remote interface without delay
     checkForRemoteStateChange();
