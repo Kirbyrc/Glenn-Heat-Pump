@@ -232,7 +232,7 @@ void HPEmulator::checkForRemoteStateChange() {
     // Compare remoteState to emulatorState
     // If different, initial remoteInControl and remoteLastUpdateTime
     // If different, update, esphomeState and esphome engine
-    // Set timer so that remoteinControl will stay for 5 seconds
+    // Set timer so that remoteinControl will stay for 30 seconds
        
     static HeatpumpState lastRemoteState;
     uint64_t currentTime = esp_timer_get_time() / 1000; // Convert microseconds to milliseconds 
