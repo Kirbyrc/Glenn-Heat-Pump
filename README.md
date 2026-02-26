@@ -174,7 +174,7 @@ Remote  <-->  HPEmulator (RE_UART, UART2)
 
 ### HPEmulator (Remote-Side Emulation)
 
-For the remote to work, it needs to believe that it is talking directly to the heatpump.  To enable this, the code contains an emulator that has the purpose of keeping the remote happy.   The `HPEmulator` class (in `components/cn105/hp_emulator_idf.cpp`) responds to all CN105 protocol messages that the remote sends, as though the ESP32 *were* the heat pump:
+For the remote to work, it needs to believe that it is talking directly to the heat pump. To enable this, the code contains a CN105 emulator whose purpose is to keep the remote happy. The `HPEmulator` class (in `components/cn105/hp_emulator_idf.cpp`) responds to all CN105 protocol messages that the remote sends, as though the ESP32 *were* the heat pump:
 
 - **Ping/Connect** packets from the remote receive the correct connection acknowledgement.
 - **Config request** packets return a valid capability response so the remote knows what modes are supported.
@@ -191,17 +191,17 @@ Three internal `HeatpumpState` structures are maintained inside `HPEmulator`:
 | `esphomeState` | The latest state read from the ESPHome engine (reflects real HP state) |
 | `remoteState` | The last state commanded by the remote |
 
-On every second, `HPEmulator::updateEmulatorStateFromEngine()` pulls the current actual heat pump state from `CN105Climate` and updates `emulatorState`. This ensures the remote's display always reflects reality, whether the change came from Home Assistant or the remote itself.
+Once every second, `HPEmulator::updateEmulatorStateFromEngine()` pulls the current actual heat pump state from `CN105Climate` and updates `emulatorState`. This ensures the remote's display always reflects reality, whether the change came from Home Assistant or the remote itself.
 
-When the remote sends a new control command, `HPEmulator::sendEmulatorStateToEngine()` pushes the new desired state into the ESPHome engine, which forwards it to the heat pump.  Once the remote pushes it state, it will disable for 30 seconds to allow this state to propagate throught the system. Without this lockout, the system will oscillate between various states.
+When the remote sends a new control command, `HPEmulator::sendEmulatorStateToEngine()` pushes the new desired state into the ESPHome engine, which forwards it to the heat pump. Once the remote pushes its state, the remote is locked out for 30 seconds to allow the new state to propagate through the system. Without this lockout, the system will oscillate between various states.
 
 ### Optional Web Interface
 
-To enable debugging, the emulator has the ability to provide a second web inteface running on WEBPORT.  ESPHOME provides a web interface running on port 80.   This interface will display the esphome state and the remote state.
+To enable debugging, the emulator has the ability to provide a second web interface running on WEBPORT. ESPHome already provides a web interface running on port 80. This second interface displays the ESPHome state and the remote state.
 
 ### Kludge for second Serial Port
 
-The second Serial port is defined in the yaml file.  This second port is not supported in the climate.py code so an alternative method to bring the port information into the emulator was needed.   This is accomplished through use of the g_re_uart variable which is set in the on_boot section of the yaml code.
+The second serial port is defined in the YAML file. This second port is not supported in the climate.py code, so an alternative method to bring the port information into the emulator was needed. This is accomplished through the `g_re_uart` variable, which is set in the `on_boot` section of the YAML configuration.
 
 ### Status LED
 
