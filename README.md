@@ -80,13 +80,74 @@ The following files were added or significantly modified relative to the upstrea
 | `components/cn105/hp_emulator_idf.cpp` | Core implementation of the **HPEmulator** class. Runs a second UART task that speaks the CN105 protocol *toward* the remote controller, making the ESP32 look like a heat pump to the remote. |
 | `components/cn105/hp_emulator_idf.h` | Header for `HPEmulator`. Defines the `HeatpumpState` and `DataBuffer` structs, protocol lookup tables, and the public API used to exchange state with the ESPHome engine. |
 | `assets/heatpump-s3-zero.yaml` | Example ESPHome YAML configuration for the ESP32-S3-Zero, with both UARTs configured and the `cn105` platform enabled. |
-| `custom_components/mitsubishi_climate_proxy/` | Home Assistant custom component that wraps the ESPHome climate entity to fix a UI issue where dual-setpoint mode causes two temperature sliders to appear in all modes. |
 
 ### Modified Files
 
-| File | Change |
-|------|--------|
-| `components/cn105/cn105.cpp` / `cn105.h` | Added integration hooks so the ESPHome climate engine shares its current state with the `HPEmulator` and accepts state changes pushed by the remote. |
+#### `components/cn105/componentEntries.cpp`
+
+Adds the `HPEmulator` instance and wires it into the ESPHome setup/loop lifecycle:
+
+```diff
+ #include "cn105.h"
++#include "hp_emulator_idf.h"
+ #ifdef USE_WIFI
+ #include "esphome/components/wifi/wifi_component.h"
+ #endif
+
++HVAC::HPEmulator myhp;
++
+ void CN105Climate::setup() {
+
+     ESP_LOGD(TAG, "Component initialization: setup call");
+@@ -44,6 +48,11 @@ void CN105Climate::setup() {
+     this->supports_dual_setpoint_ = this->traits_.has_feature_flags(climate::CLIMATE_REQUIRES_TWO_POINT_TARGET_TEMPERATURE);
+     ESP_LOGI(TAG, "Dual setpoint support configured: %s", this->supports_dual_setpoint_ ? "YES" : "NO");
+
++    g_cn105 = this;  // Set global pointer so HPEmulator can access CN105Climate
++    myhp.setup();
++
+ }
+
+ void CN105Climate::loop() {
+     const bool can_talk_to_hp = this->isHeatpumpConnected_;
+
++    myhp.run();
++
+     if (!this->processInput()) {
+```
+
+#### `components/cn105/cn105.h`
+
+Promotes `currentSettings`, `wantedSettings`, and the `debugSettings` overloads from `private` to `public` so `HPEmulator` can read and write the heat pump state directly:
+
+```diff
+-        void publishStateToHA(heatpumpSettings& settings);
+         void publishWantedSettingsStateToHA();
+         void publishWantedRunStatesStateToHA();
+
+-        void heatpumpUpdate(heatpumpSettings& settings);
++        void publishStateToHA(heatpumpSettings& settings);
+
+         void statusChanged(heatpumpStatus status);
+
+-        void debugSettings(const char* settingName, heatpumpSettings& settings);
+-        void debugSettings(const char* settingName, wantedHeatpumpSettings& settings);
++
+         void debugStatus(const char* statusName, heatpumpStatus status);
+
+         void createInfoPacket(uint8_t* packet, uint8_t code);
++
++    public:
++        // Made public for HPEmulator access
+         heatpumpSettings currentSettings{};
+         wantedHeatpumpSettings wantedSettings{};
++        void debugSettings(const char* settingName, heatpumpSettings& settings);
++        void debugSettings(const char* settingName, wantedHeatpumpSettings& settings);
++
++    private:
++        void heatpumpUpdate(heatpumpSettings& settings);
+         heatpumpRunStates currentRunStates{};
+```
 
 ---
 
@@ -157,16 +218,54 @@ A remote temperature sensor from Home Assistant can be fed back to the heat pump
 
 ## Example YAML Configuration
 
-The complete ESPHome configuration for the ESP32-S3-Zero is at [assets/heatpump-s3-zero.yaml](assets/heatpump-s3-zero.yaml). Key sections:
+The complete ESPHome configuration for the ESP32-S3-Zero is at [assets/heatpump-s3-zero.yaml](assets/heatpump-s3-zero.yaml).
+
+Copy this file to your ESPHome configuration directory, fill in the `secrets.yaml` values (`wifi_ssid`, `wifi_password`, `ha_encryption_key`, `ota_password`, `recovery_password`), and flash it to your ESP32-S3-Zero.
 
 ```yaml
+substitutions:
+  name: heatpump-s3-zero
+  friendly_name: My Heatpump S3 Zero
+  remote_temp_sensor: sensor.my_room_temperature # Homeassistant sensor providing remote temperature
+
+esphome:
+  name: ${name}
+  friendly_name: ${friendly_name}
+  on_boot:
+    priority: 600 # High priority runs early in the boot process
+    then:
+      - lambda: |- #this lambda is used to connect the remote uart to the uard defined as RE_UART
+          extern esphome::uart::IDFUARTComponent* g_re_uart;
+          g_re_uart = id(RE_UART);
+      - light.turn_on:
+          id: statusledlight
+          red: 100%
+          green: 0%
+          blue: 0%
+          brightness: 40%
+  platformio_options:
+    build_flags:
+      -DBOARD_HAS_PSRAM
+      -DWEBPORT=8080 #starts a debug web interface on port 8080
+    board_build.arduino.memory_type: qio_opi
+    board_build.flash_mode: qio
+    board_build.psram_type: qio
+    board_upload.maximum_size: 4194304
+
+esp32:
+  board: esp32-s3-devkitc-1
+  variant: esp32s3
+  flash_size: 4MB
+  framework:
+    type: esp-idf
+
 uart:
-  - id: HP_UART        # Connects to the heat pump
+  - id: HP_UART
     baud_rate: 2400
     parity: even
     tx_pin: GPIO13
     rx_pin: GPIO12
-  - id: RE_UART        # Connects to the wired remote
+  - id: RE_UART
     baud_rate: 2400
     parity: even
     tx_pin: GPIO11
@@ -176,15 +275,192 @@ external_components:
   - source: github://Kirbyrc/Glenn-Heat-Pump
     refresh: 0s
 
+#status LED
+light:
+  - platform: esp32_rmt_led_strip
+    rgb_order: RGB
+    pin: GPIO21
+    num_leds: 1
+    chipset: ws2812
+    name: Status LED Light
+    id: statusledlight
+    restore_mode: ALWAYS_ON
+
+# Enable WiFi connection
+wifi:
+  output_power: 8.5
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  on_connect:
+    then:
+      - light.turn_on:
+          id: statusledlight
+          red: 50%
+          green: 50%
+          blue: 0%
+          brightness: 40%
+
+  # Enable fallback hotspot (captive portal) in case wifi connection fails
+  ap:
+    ssid: "${friendly_name} ESP"
+    password: !secret recovery_password
+
+captive_portal:
+
+# Enable logging
+logger:
+  logs:
+    EVT_SETS : INFO
+    WIFI : INFO
+    MQTT : INFO
+    WRITE_SETTINGS : INFO
+    SETTINGS : INFO
+    STATUS : INFO
+    CN105Climate: WARN
+    CN105: INFO
+    climate: WARN
+    sensor: WARN
+    chkSum : INFO
+    WRITE : WARN
+    READ : WARN
+    Header: INFO
+    Decoder : INFO
+    CONTROL_WANTED_SETTINGS: INFO
+    HPE_Core : WARN
+
+# Enable Home Assistant API
+api:
+  encryption:
+    key: !secret ha_encryption_key
+  on_client_connected:
+    then:
+      - light.turn_on:
+          id: statusledlight
+          red: 0%
+          green: 100%
+          blue: 0%
+          brightness: 40%
+
+  on_client_disconnected:
+    then:
+      - light.turn_on:
+          id: statusledlight
+          red: 100%
+          green: 0%
+          blue: 0%
+          brightness: 40%
+
+ota:
+  password: !secret ota_password
+  platform: esphome
+
+sensor:
+  - platform: uptime
+    name: Uptime
+  - platform: wifi_signal
+    name: WiFi Signal
+    update_interval: 120s
+  - platform: homeassistant
+    name: "Remote Temperature Sensor"
+    entity_id: ${remote_temp_sensor}
+    internal: false
+    disabled_by_default: true
+    device_class: temperature
+    state_class: measurement
+    unit_of_measurement: "°C"
+    filters:
+      - clamp:
+          min_value: 1
+          max_value: 40
+          ignore_out_of_range: true
+      - throttle: 30s
+    on_value:
+      then:
+        - logger.log:
+            level: INFO
+            format: "Remote temperature received from HA: %.1f C"
+            args: [ 'x' ]
+        - lambda: 'id(hp).set_remote_temperature(x);'
+
+# Enable Web server.
+web_server:
+  port: 80
+
+# Sync time with Home Assistant.
+time:
+  - platform: homeassistant
+    id: homeassistant_time
+
+# Text sensors with general information.
+text_sensor:
+  - platform: version
+    name: ESPHome Version
+  - platform: wifi_info
+    ip_address:
+      name: IP
+    ssid:
+      name: SSID
+    bssid:
+      name: BSSID
+
+button:
+  - platform: restart
+    name: "Restart ${friendly_name}"
+
 climate:
   - platform: cn105
     id: hp
     uart_id: HP_UART
-    name: "My Heatpump S3 Zero"
-    ...
+    name: "${friendly_name}"
+    icon: mdi:heat-pump
+    visual:
+      min_temperature: 15
+      max_temperature: 31
+      temperature_step:
+        target_temperature: 1
+        current_temperature: 0.5
+    remote_temperature_timeout: 30min
+    update_interval: 4s
+    debounce_delay : 100ms
+    compressor_frequency_sensor:
+      name: Compressor Frequency
+      entity_category: diagnostic
+      disabled_by_default: true
+    outside_air_temperature_sensor:
+      name: Outside Air Temp
+      disabled_by_default: true
+    vertical_vane_select:
+      name: Vertical Vane
+      disabled_by_default: false
+    horizontal_vane_select:
+      name: Horizontal Vane
+      disabled_by_default: true
+    isee_sensor:
+      name: ISEE Sensor
+      disabled_by_default: true
+    stage_sensor:
+      name: Stage
+      entity_category: diagnostic
+      disabled_by_default: true
+    sub_mode_sensor:
+      name: Sub Mode
+      entity_category: diagnostic
+      disabled_by_default: true
+    auto_sub_mode_sensor:
+      name: Auto Sub Mode
+      entity_category: diagnostic
+      disabled_by_default: true
+    input_power_sensor:
+      name: Input Power
+      disabled_by_default: true
+    kwh_sensor:
+      name: Energy Usage
+      disabled_by_default: true
+    runtime_hours_sensor:
+      name: Runtime Hours
+      entity_category: diagnostic
+      disabled_by_default: true
 ```
-
-Copy this file to your ESPHome configuration directory, fill in the `secrets.yaml` values (`wifi_ssid`, `wifi_password`, `ha_encryption_key`, `ota_password`, `recovery_password`), and flash it to your ESP32-S3-Zero.
 
 ---
 
