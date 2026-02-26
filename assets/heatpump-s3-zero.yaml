@@ -9,7 +9,7 @@ esphome:
   on_boot:
     priority: 600 # High priority runs early in the boot process
     then:
-      - lambda: |- #this lambda is used to connect the remote uart to the uard defined as RE_UART
+      - lambda: |- #this lambda is used to connect the remote uart to RE_UART.  This is necessary unless Climate.py is changed
           extern esphome::uart::IDFUARTComponent* g_re_uart;
           g_re_uart = id(RE_UART);
       - light.turn_on:
@@ -21,7 +21,7 @@ esphome:
   platformio_options:
     build_flags:
       -DBOARD_HAS_PSRAM
-      -DWEBPORT=8080 #starts a debug web interface on port 8080
+      -DWEBPORT=8080 #optional, starts a debug web interface on port 8080
     board_build.arduino.memory_type: qio_opi
     board_build.flash_mode: qio
     board_build.psram_type: qio
@@ -50,8 +50,7 @@ uart:
     rx_pin: GPIO10
 
 external_components:
-#  - source: github://echavet/MitsubishiCN105ESPHome
-  - source: github://Kirbyrc/Glenn-Heat-Pump
+  - source: github://Kirbyrc/MitsubishiCN105ESPHome-Remote
     refresh: 0s
 
 #status LED

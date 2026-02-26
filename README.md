@@ -43,6 +43,8 @@ Both buses run at 2400 baud, 8 bits, even parity — the standard Mitsubishi CN1
 
 The ESP32-S3-Zero was chosen for its small footprint and built-in RGB status LED, which is used to indicate Wi-Fi and Home Assistant connection state.
 
+![ESPHome Hardware](assets/hardware_photo.JPG)
+
 ---
 
 ## Schematic
@@ -234,7 +236,7 @@ esphome:
   on_boot:
     priority: 600 # High priority runs early in the boot process
     then:
-      - lambda: |- #this lambda is used to connect the remote uart to the uard defined as RE_UART
+      - lambda: |- #this lambda is used to connect the remote uart to RE_UART.  This is necessary unless Climate.py is changed
           extern esphome::uart::IDFUARTComponent* g_re_uart;
           g_re_uart = id(RE_UART);
       - light.turn_on:
@@ -246,13 +248,16 @@ esphome:
   platformio_options:
     build_flags:
       -DBOARD_HAS_PSRAM
-      -DWEBPORT=8080 #starts a debug web interface on port 8080
+      -DWEBPORT=8080 #optional, starts a debug web interface on port 8080
     board_build.arduino.memory_type: qio_opi
     board_build.flash_mode: qio
     board_build.psram_type: qio
     board_upload.maximum_size: 4194304
 
 esp32:
+#  board: esp32doit-devkit-v1
+#  framework:
+#    type: esp-idf
   board: esp32-s3-devkitc-1
   variant: esp32s3
   flash_size: 4MB
@@ -272,7 +277,7 @@ uart:
     rx_pin: GPIO10
 
 external_components:
-  - source: github://Kirbyrc/Glenn-Heat-Pump
+  - source: github://Kirbyrc/MitsubishiCN105ESPHome-Remote
     refresh: 0s
 
 #status LED
@@ -326,7 +331,7 @@ logger:
     Header: INFO
     Decoder : INFO
     CONTROL_WANTED_SETTINGS: INFO
-    HPE_Core : WARN
+    HPE_Core : WARN  # new logging for the Heatpump Emulator messages
 
 # Enable Home Assistant API
 api:
@@ -362,14 +367,16 @@ sensor:
     update_interval: 120s
   - platform: homeassistant
     name: "Remote Temperature Sensor"
-    entity_id: ${remote_temp_sensor}
+    entity_id: ${remote_temp_sensor} # Replace with your HomeAssistant remote sensor entity id, or include in substitutions
     internal: false
     disabled_by_default: true
     device_class: temperature
     state_class: measurement
     unit_of_measurement: "°C"
     filters:
-      - clamp:
+    # Uncomment the lambda line to convert F to C on incoming temperature
+    #  - lambda: return (x - 32) * (5.0/9.0);
+      - clamp: # Limits values to range accepted by Mitsubishi units
           min_value: 1
           max_value: 40
           ignore_out_of_range: true
@@ -403,10 +410,17 @@ text_sensor:
     bssid:
       name: BSSID
 
+# Create a button to restart the unit from HomeAssistant. Rarely needed, but can be handy.
 button:
   - platform: restart
     name: "Restart ${friendly_name}"
 
+# Creates the sensor used to receive the remote temperature from Home Assistant
+# Uses sensor selected in substitutions area at top of config
+# Customize the filters to your application:
+#   Uncomment the first line to convert F to C when remote temps are sent
+#   If you have a fast or noisy sensor, consider some of the other filter
+#   options such as throttle_average.
 climate:
   - platform: cn105
     id: hp
@@ -419,9 +433,11 @@ climate:
       temperature_step:
         target_temperature: 1
         current_temperature: 0.5
+    # Timeout and communication settings
     remote_temperature_timeout: 30min
     update_interval: 4s
     debounce_delay : 100ms
+    # Various optional sensors, not all sensors are supported by all heatpumps
     compressor_frequency_sensor:
       name: Compressor Frequency
       entity_category: diagnostic
