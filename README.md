@@ -1,4 +1,4 @@
-# Glenn Heat Pump — ESPHome CN105 Bridge
+#  MitsubishiCN105ESPHome-Remote — ESPHome CN105 Bridge
 
 ## Purpose
 
@@ -15,9 +15,9 @@ Neither the heat pump nor the remote requires any modification. The ESP32 sits e
 
 ```mermaid
 flowchart LR
-    HP["Mitsubishi MSZ-EF12NAW\nHeat Pump Indoor Unit\nCN105 5-pin JST Connector"]
-    ESP["ESPHome Controller\nESP32-S3-Zero\nPort A (UART1) | Port B (UART2)"]
-    RC["Mitsubishi MRC-H2\nWireless Remote Control\nCN105 5-pin JST Connector"]
+    HP["Mitsubishi MSZ-EF12NAW<br/>Heat Pump Indoor Unit<br/>CN105 5-pin JST Connector"]
+    ESP["ESPHome Controller<br/>ESP32-S3-Zero<br/>Port A (UART1) | Port B (UART2)"]
+    RC["Mitsubishi MRC-H2<br/>Wireless Remote Control<br/>CN105 5-pin JST Connector"]
     HP -- "CN105 Bus" --> ESP
     ESP -- "CN105 Bus" --> RC
 ```
@@ -65,7 +65,7 @@ The schematic shows how the ESP32-S3-Zero is wired to both CN105 connectors. The
 
 ## Origin: Fork of MitsubishiCN105ESPHome
 
-This project started as a clone of **[echavet/MitsubishiCN105ESPHome](https://github.com/echavet/MitsubishiCN105ESPHome)**, an ESPHome component that enables full control of a Mitsubishi heat pump through the CN105 serial port using a single ESP32 UART.
+This project started as a fork of **[echavet/MitsubishiCN105ESPHome](https://github.com/echavet/MitsubishiCN105ESPHome)**, an ESPHome component that enables full control of a Mitsubishi heat pump through the CN105 serial port using a single ESP32 UART.
 
 The original project supports one-way insertion (ESP32 replaces the remote entirely). This fork adds a **second UART and a heat pump emulator** so that the original wired remote can remain fully functional alongside Home Assistant.
 
